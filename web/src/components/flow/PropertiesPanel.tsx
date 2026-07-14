@@ -1,139 +1,249 @@
 "use client";
 
 import { useState } from "react";
-import type { Node } from "@xyflow/react";
-import { alertFrequencyOptions, activityTypeLabel, type ActivityType, type FlowNodeData } from "@/lib/flow-types";
+import type { Edge, Node } from "@xyflow/react";
+import {
+  NODE_META,
+  activityTypeLabel,
+  alertFrequencyOptions,
+  type ActivityType,
+  type FlowNodeData,
+} from "@/lib/flow-types";
 
-const kindLabel: Record<string, string> = {
-  start: "Evento de Início",
-  end: "Evento de Fim",
-  task: "Tarefa",
-  decision: "Gateway de Decisão",
-};
+// ---------- Campos reutilizáveis ----------
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[11px] font-bold text-muted">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const inputCls =
+  "w-full rounded-[9px] border border-border bg-page px-3 py-2 text-[12.5px] outline-none focus:border-indigo-400";
+
+function TextField({ label, value, onChange, placeholder }: { label: string; value?: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <Field label={label}>
+      <input value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={inputCls} />
+    </Field>
+  );
+}
+
+function TextArea({ label, value, onChange, placeholder, rows = 2 }: { label: string; value?: string; onChange: (v: string) => void; placeholder?: string; rows?: number }) {
+  return (
+    <Field label={label}>
+      <textarea value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={rows} className={`${inputCls} resize-none`} />
+    </Field>
+  );
+}
+
+function TagList({ label, values, onChange, placeholder }: { label: string; values: string[]; onChange: (v: string[]) => void; placeholder: string }) {
+  const [draft, setDraft] = useState("");
+  return (
+    <Field label={label}>
+      <div className="flex flex-wrap gap-1.5">
+        {values.map((v) => (
+          <span
+            key={v}
+            onClick={() => onChange(values.filter((x) => x !== v))}
+            className="cursor-pointer rounded-full border border-accent-soft-border bg-accent-soft px-2.5 py-1 text-[11px] font-bold text-accent"
+            title="Clique para remover"
+          >
+            {v} ✕
+          </span>
+        ))}
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && draft.trim()) {
+              e.preventDefault();
+              if (!values.includes(draft.trim())) onChange([...values, draft.trim()]);
+              setDraft("");
+            }
+          }}
+          placeholder={placeholder}
+          className="w-24 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-[11px] font-semibold outline-none focus:border-indigo-400"
+        />
+      </div>
+    </Field>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <div className="mt-1 border-b border-border-soft pb-1 text-[10.5px] font-bold tracking-[.07em] text-slate-400 uppercase">{children}</div>;
+}
+
+// ---------- Painel de nó ----------
 
 export function PropertiesPanel({
   node,
-  onChange,
+  edge,
+  onNodeChange,
+  onEdgeChange,
+  onDelete,
+  onDuplicate,
   onSave,
+  saveState,
 }: {
   node: Node<FlowNodeData> | null;
-  onChange: (patch: Partial<FlowNodeData>) => void;
+  edge: Edge | null;
+  onNodeChange: (patch: Partial<FlowNodeData>) => void;
+  onEdgeChange: (patch: Partial<Edge>) => void;
+  onDelete: () => void;
+  onDuplicate: () => void;
   onSave: () => void;
+  saveState: "idle" | "saving" | "saved" | "error";
 }) {
-  const [tagDraft, setTagDraft] = useState("");
+  if (edge) {
+    return (
+      <PanelShell onSave={onSave} saveState={saveState}>
+        <div>
+          <div className="text-[10.5px] font-bold tracking-[.08em] text-slate-400 uppercase">Conexão</div>
+          <div className="mt-1.5 text-[15px] font-bold">Fluxo de sequência</div>
+        </div>
+        <TextField
+          label="Rótulo / condição"
+          value={typeof edge.label === "string" ? edge.label : ""}
+          onChange={(v) => onEdgeChange({ label: v || undefined })}
+          placeholder="Ex.: Sim, Não, > R$ 10 mil…"
+        />
+        <button onClick={onDelete} className="rounded-[9px] border border-danger-soft bg-danger-soft px-3 py-2 text-[12.5px] font-bold text-danger-strong hover:bg-red-100">
+          Excluir conexão
+        </button>
+      </PanelShell>
+    );
+  }
 
   if (!node) {
     return (
-      <div className="flex w-[280px] flex-none flex-col items-center justify-center gap-2 border-l border-border bg-surface px-5 py-6 text-center text-[12.5px] text-muted">
-        Selecione um elemento no canvas para editar suas propriedades.
+      <div className="flex w-[300px] flex-none flex-col items-center justify-center gap-2 border-l border-border bg-surface px-5 py-6 text-center text-[12.5px] text-muted">
+        Selecione um elemento no canvas para editar seus atributos, ou arraste um novo da paleta.
       </div>
     );
   }
 
   const data = node.data;
-  const isTask = data.kind === "task";
+  const meta = NODE_META[data.kind];
+  const isActivity = data.kind === "task" || data.kind === "subprocess";
+  const isGateway = data.kind === "decision" || data.kind === "gateway_parallel" || data.kind === "gateway_inclusive";
+  const isEvent = data.kind === "start" || data.kind === "end" || data.kind === "intermediate";
 
   return (
-    <div className="flex w-[280px] flex-none flex-col gap-4 overflow-auto border-l border-border bg-surface px-5 py-5.5">
+    <PanelShell onSave={onSave} saveState={saveState}>
       <div>
         <div className="text-[10.5px] font-bold tracking-[.08em] text-slate-400 uppercase">Propriedades</div>
-        <div className="mt-1.5 text-[15px] font-bold">{data.label}</div>
-        <div className="mt-0.5 text-[11.5px] text-muted">{kindLabel[data.kind]}</div>
+        <div className="mt-1.5 text-[11.5px] font-semibold text-accent">{meta.typeName}</div>
       </div>
 
-      {isTask && (
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[11px] font-bold text-muted">Tipo de atividade</label>
-          <select
-            value={data.activityType ?? "manual"}
-            onChange={(e) => onChange({ activityType: e.target.value as ActivityType })}
-            className="rounded-[9px] border border-border bg-page px-3 py-2 text-[12.5px] font-semibold"
-          >
-            {(Object.keys(activityTypeLabel) as ActivityType[]).map((t) => (
-              <option key={t} value={t}>
-                {activityTypeLabel[t]}
-              </option>
-            ))}
-          </select>
-        </div>
+      <TextField label="Nome" value={data.label} onChange={(v) => onNodeChange({ label: v })} placeholder="Nome do elemento" />
+      {data.kind !== "annotation" && (
+        <TextArea label="Descrição" value={data.description} onChange={(v) => onNodeChange({ description: v })} placeholder="O que acontece, critério de aceite…" />
       )}
 
-      {data.kind !== "start" && data.kind !== "end" && (
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[11px] font-bold text-muted">Responsável</label>
-          <input
-            value={data.actor ?? ""}
-            onChange={(e) => onChange({ actor: e.target.value })}
-            className="rounded-[9px] border border-border bg-page px-3 py-2 text-[12.5px] font-semibold outline-none focus:border-indigo-400"
-            placeholder="Nome ou cargo..."
-          />
-        </div>
-      )}
+      {isActivity && (
+        <>
+          <SectionTitle>Responsabilidade</SectionTitle>
+          <TextField label="Executor / Responsável" value={data.actor} onChange={(v) => onNodeChange({ actor: v })} placeholder="Cargo ou pessoa" />
+          <TextField label="Área" value={data.area} onChange={(v) => onNodeChange({ area: v })} placeholder="Ex.: RH, Financeiro" />
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[11px] font-bold text-muted">Alerta de atualização</label>
-        <select
-          value={data.alertFrequency ?? "Sem alerta"}
-          onChange={(e) => onChange({ alertFrequency: e.target.value })}
-          className="cursor-pointer rounded-[9px] border border-border bg-page px-3 py-2 text-[12.5px] font-semibold hover:border-indigo-300"
-        >
-          {alertFrequencyOptions.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <label className="text-[11px] font-bold text-muted">Tags personalizadas</label>
-        <div className="flex flex-wrap gap-1.5">
-          {(data.tags ?? []).map((tag) => (
-            <span
-              key={tag}
-              onClick={() => onChange({ tags: (data.tags ?? []).filter((t) => t !== tag) })}
-              className="cursor-pointer rounded-full border border-accent-soft-border bg-accent-soft px-2.5 py-1 text-[11px] font-bold text-accent"
-              title="Clique para remover"
+          <SectionTitle>Execução</SectionTitle>
+          <Field label="Tipo de atividade">
+            <select value={data.activityType ?? "manual"} onChange={(e) => onNodeChange({ activityType: e.target.value as ActivityType })} className={inputCls}>
+              {(Object.keys(activityTypeLabel) as ActivityType[]).map((t) => (
+                <option key={t} value={t}>
+                  {activityTypeLabel[t]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex items-center justify-between rounded-[10px] bg-page px-3 py-2.5">
+            <div>
+              <div className="text-[12px] font-bold">Usa IA nesta etapa</div>
+              <div className="text-[10.5px] text-slate-400">Automação / triagem inteligente</div>
+            </div>
+            <button
+              onClick={() => onNodeChange({ usesAI: !data.usesAI })}
+              className={`relative h-5 w-9 flex-none rounded-full transition-colors ${data.usesAI ? "bg-accent" : "bg-slate-300"}`}
             >
-              {tag}
-            </span>
-          ))}
-          <input
-            value={tagDraft}
-            onChange={(e) => setTagDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && tagDraft.trim()) {
-                onChange({ tags: [...(data.tags ?? []), tagDraft.trim()] });
-                setTagDraft("");
-              }
-            }}
-            placeholder="+ Tag"
-            className="w-20 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-[11px] font-bold text-muted outline-none focus:border-indigo-400"
-          />
-        </div>
-      </div>
+              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${data.usesAI ? "left-[18px]" : "left-0.5"}`} />
+            </button>
+          </div>
+          <TagList label="Sistemas envolvidos" values={data.systems ?? []} onChange={(v) => onNodeChange({ systems: v })} placeholder="+ sistema" />
+          <TextField label="Entradas (inputs)" value={data.inputs} onChange={(v) => onNodeChange({ inputs: v })} placeholder="Dados/documentos necessários" />
+          <TextField label="Saídas (outputs)" value={data.outputs} onChange={(v) => onNodeChange({ outputs: v })} placeholder="Registros/resultados gerados" />
+          <div className="grid grid-cols-2 gap-2">
+            <TextField label="SLA / Prazo" value={data.sla} onChange={(v) => onNodeChange({ sla: v })} placeholder="Ex.: 2h" />
+            <TextField label="Custo estimado" value={data.cost} onChange={(v) => onNodeChange({ cost: v })} placeholder="Ex.: R$ 50" />
+          </div>
 
-      <div className="flex items-center justify-between rounded-[10px] bg-page p-3">
-        <div>
-          <div className="text-[12px] font-bold">Usa IA nesta etapa</div>
-          <div className="text-[10.5px] text-slate-400">Triagem automática</div>
-        </div>
-        <button
-          onClick={() => onChange({ usesAI: !data.usesAI })}
-          className={`relative h-5 w-9 flex-none rounded-full transition-colors ${data.usesAI ? "bg-accent" : "bg-slate-300"}`}
-        >
-          <span
-            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
-              data.usesAI ? "left-[18px]" : "left-0.5"
-            }`}
-          />
+          <SectionTitle>Controles e exceções</SectionTitle>
+          <TextArea label="Pontos de controle" value={data.controls} onChange={(v) => onNodeChange({ controls: v })} placeholder="Verificações/aprovações obrigatórias" />
+          <TextArea label="Exceções / desvios" value={data.exceptions} onChange={(v) => onNodeChange({ exceptions: v })} placeholder="Situações fora do fluxo padrão" />
+          <TextField label="Indicador / KPI" value={data.kpi} onChange={(v) => onNodeChange({ kpi: v })} placeholder="Ex.: % sem retrabalho" />
+        </>
+      )}
+
+      {isGateway && (
+        <>
+          <SectionTitle>Decisão</SectionTitle>
+          <TextField label="Responsável pela decisão" value={data.actor} onChange={(v) => onNodeChange({ actor: v })} placeholder="Quem decide" />
+        </>
+      )}
+
+      {(isActivity || isGateway || isEvent || data.kind === "data") && (
+        <>
+          <SectionTitle>Governança</SectionTitle>
+          {(isActivity || isGateway) && (
+            <Field label="Alerta de atualização">
+              <select value={data.alertFrequency ?? "Sem alerta"} onChange={(e) => onNodeChange({ alertFrequency: e.target.value })} className={inputCls}>
+                {alertFrequencyOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          <TagList label="Tags personalizadas" values={data.tags ?? []} onChange={(v) => onNodeChange({ tags: v })} placeholder="+ tag" />
+          <TextField label="Documentação (link)" value={data.documentation} onChange={(v) => onNodeChange({ documentation: v })} placeholder="URL do SOP / procedimento" />
+        </>
+      )}
+
+      <div className="mt-1 flex gap-2">
+        <button onClick={onDuplicate} className="flex-1 rounded-[9px] border border-border bg-page px-3 py-2 text-[12px] font-bold text-slate-600 hover:bg-slate-100">
+          Duplicar
+        </button>
+        <button onClick={onDelete} className="flex-1 rounded-[9px] border border-danger-soft bg-danger-soft px-3 py-2 text-[12px] font-bold text-danger-strong hover:bg-red-100">
+          Excluir
         </button>
       </div>
+    </PanelShell>
+  );
+}
 
-      <div className="flex-1" />
-      <button onClick={onSave} className="rounded-[10px] bg-accent py-2.5 text-[13px] font-semibold text-white hover:bg-accent-hover">
-        Salvar alterações
-      </button>
+function PanelShell({
+  children,
+  onSave,
+  saveState,
+}: {
+  children: React.ReactNode;
+  onSave: () => void;
+  saveState: "idle" | "saving" | "saved" | "error";
+}) {
+  return (
+    <div className="flex w-[300px] flex-none flex-col gap-3 overflow-auto border-l border-border bg-surface px-5 py-5">
+      {children}
+      <div className="sticky bottom-0 -mx-5 mt-1 flex items-center gap-2 border-t border-border-soft bg-surface px-5 pt-3">
+        <button onClick={onSave} className="flex-1 rounded-[10px] bg-accent py-2.5 text-[13px] font-semibold text-white hover:bg-accent-hover">
+          {saveState === "saving" ? "Salvando…" : "Salvar alterações"}
+        </button>
+        {saveState === "saved" && <span className="text-[11px] font-semibold text-success-strong">Salvo ✓</span>}
+        {saveState === "error" && <span className="text-[11px] font-semibold text-danger-strong">Falhou</span>}
+      </div>
     </div>
   );
 }

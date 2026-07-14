@@ -14,6 +14,7 @@ interface FlowNodeRow {
   uses_ai: boolean;
   pos_x: number;
   pos_y: number;
+  attributes: Record<string, unknown> | null;
 }
 
 interface FlowEdgeRow {
@@ -41,20 +42,35 @@ export async function getProcessFlow(processId: string) {
   if (nodesError) throw new Error(`Falha ao carregar nós: ${nodesError.message}`);
   if (edgesError) throw new Error(`Falha ao carregar conexões: ${edgesError.message}`);
 
-  const nodes: Node<FlowNodeData>[] = (nodeRows as FlowNodeRow[]).map((r) => ({
-    id: r.node_id,
-    type: r.kind,
-    position: { x: r.pos_x, y: r.pos_y },
-    data: {
-      kind: r.kind,
-      label: r.label,
-      actor: r.actor ?? undefined,
-      activityType: r.activity_type ?? undefined,
-      alertFrequency: r.alert_frequency ?? undefined,
-      tags: r.tags ?? [],
-      usesAI: r.uses_ai,
-    },
-  }));
+  const nodes: Node<FlowNodeData>[] = (nodeRows as FlowNodeRow[]).map((r) => {
+    const attrs = (r.attributes ?? {}) as Partial<FlowNodeData>;
+    return {
+      id: r.node_id,
+      type: r.kind,
+      position: { x: r.pos_x, y: r.pos_y },
+      data: {
+        kind: r.kind,
+        label: r.label,
+        actor: r.actor ?? undefined,
+        activityType: r.activity_type ?? undefined,
+        alertFrequency: r.alert_frequency ?? undefined,
+        tags: r.tags ?? [],
+        usesAI: r.uses_ai,
+        // atributos ricos (área, descrição, sistemas, SLA, controles, etc.)
+        area: attrs.area,
+        description: attrs.description,
+        systems: attrs.systems ?? [],
+        inputs: attrs.inputs,
+        outputs: attrs.outputs,
+        sla: attrs.sla,
+        cost: attrs.cost,
+        controls: attrs.controls,
+        exceptions: attrs.exceptions,
+        kpi: attrs.kpi,
+        documentation: attrs.documentation,
+      },
+    };
+  });
 
   const edges: Edge[] = (edgeRows as FlowEdgeRow[]).map((r) => ({
     id: r.edge_id,

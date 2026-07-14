@@ -1,72 +1,81 @@
 import OpenAI from "openai";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { INTERVIEW_SYSTEM_PROMPT, INTERVIEW_TOOL, STATIC_INTERVIEW_QUESTIONS } from "@/lib/copilot-prompt";
 
-const FIELD_HINT: Record<string, string> = {
-  name: "Mantenha o nome do processo exatamente como o usuário escreveu (todas as palavras). Só corrija espaçamento e capitalização de erro de digitação óbvio — não capitalize preposições como 'de', 'da', 'do', e não abrevie nem corte parte do nome.",
-  owner: "Nome da pessoa e, se informado, seu cargo. Formato: 'Nome — Cargo'.",
-  criticality: "Normalize para exatamente uma das opções: 'Alta', 'Média' ou 'Baixa'.",
-  ai: "Normalize para 'Sim — <detalhe da etapa>' ou 'Não', mantendo o detalhe dado pelo usuário.",
-  esg: "Liste as dimensões ESG citadas (Ambiental / Social / Governança) separadas por ' · '.",
-  systems: "Liste os sistemas citados separados por vírgula. Preserve a grafia de siglas/nomes de produto exatamente como o usuário escreveu (ex.: 'TOTVS RH', 'SAP ERP', 'DocuSign') — não reformate siglas para minúsculo ou título.",
-};
+interface ChatMessage {
+  role: "ai" | "user";
+  text: string;
+}
+
+interface Body {
+  messages: ChatMessage[];
+}
 
 export async function POST(req: Request) {
-  const { field, question, answer } = (await req.json()) as {
-    field: string;
-    question: string;
-    answer: string;
-  };
+  const { messages } = (await req.json()) as Body;
+  const userTurns = messages.filter((m) => m.role === "user").length;
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return Response.json({ value: answer.trim(), source: "raw" as const });
+    // fallback estático: percorre um roteiro reduzido
+    const q = STATIC_INTERVIEW_QUESTIONS[Math.min(userTurns, STATIC_INTERVIEW_QUESTIONS.length - 1)];
+    const ready = userTurns >= 3;
+    return Response.json({
+      reply: q.mensagem,
+      suggestion: q.sugestao,
+      phase: Math.min(userTurns + 1, 7),
+      readyToGenerate: ready,
+      source: "static" as const,
+    });
   }
 
   const client = new OpenAI({ apiKey });
+  const history: ChatCompletionMessageParam[] = messages.map((m) => ({
+    role: m.role === "ai" ? "assistant" : "user",
+    content: m.text,
+  }));
 
   try {
     const completion = await client.chat.completions.create({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Você estrutura respostas de uma entrevista de mapeamento de processos corporativos (metodologia ProcessMind). " +
-            "Extraia da resposta do usuário um valor limpo e padronizado para o campo indicado, sem inventar informação que não foi dada " +
-            "e sem remover ou encurtar informação que o usuário deu — normalize apenas formatação (capitalização, pontuação, separadores). " +
-            `Campo: "${field}". Regra de normalização: ${FIELD_HINT[field] ?? "Limpe e padronize o texto."}`,
-        },
-        {
-          role: "user",
-          content: `Pergunta feita ao usuário: "${question}"\nResposta do usuário: "${answer}"`,
-        },
-      ],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "save_field",
-            description: "Salva o valor estruturado extraído da resposta do usuário.",
-            parameters: {
-              type: "object",
-              properties: {
-                value: { type: "string", description: "Valor limpo e padronizado para o card de resumo" },
-              },
-              required: ["value"],
-            },
-          },
-        },
-      ],
-      tool_choice: { type: "function", function: { name: "save_field" } },
+      messages: [{ role: "system", content: INTERVIEW_SYSTEM_PROMPT }, ...history],
+      tools: [INTERVIEW_TOOL],
+      tool_choice: { type: "function", function: { name: "responder" } },
     });
 
     const call = completion.choices[0]?.message.tool_calls?.[0];
     if (call?.type === "function" && call.function?.arguments) {
-      const parsed = JSON.parse(call.function.arguments) as { value: string };
-      return Response.json({ value: parsed.value, source: "openai" as const });
+      const parsed = JSON.parse(call.function.arguments) as {
+        mensagem: string;
+        fase_atual?: number;
+        sugestao?: string;
+        pronto_para_gerar?: boolean;
+      };
+      return Response.json({
+        reply: parsed.mensagem,
+        suggestion: parsed.sugestao ?? "",
+        phase: parsed.fase_atual ?? Math.min(userTurns + 1, 7),
+        readyToGenerate: Boolean(parsed.pronto_para_gerar) || userTurns >= 5,
+        source: "openai" as const,
+      });
     }
-    return Response.json({ value: answer.trim(), source: "raw" as const });
+    // sem tool call: usa o texto direto
+    return Response.json({
+      reply: completion.choices[0]?.message.content ?? "Pode me contar mais sobre o processo?",
+      suggestion: "",
+      phase: Math.min(userTurns + 1, 7),
+      readyToGenerate: userTurns >= 5,
+      source: "openai" as const,
+    });
   } catch (err) {
-    console.error("[copilot] OpenAI extraction failed, falling back to raw answer", err);
-    return Response.json({ value: answer.trim(), source: "raw" as const });
+    console.error("[copilot] falha na entrevista", err);
+    const q = STATIC_INTERVIEW_QUESTIONS[Math.min(userTurns, STATIC_INTERVIEW_QUESTIONS.length - 1)];
+    return Response.json({
+      reply: q.mensagem,
+      suggestion: q.sugestao,
+      phase: Math.min(userTurns + 1, 7),
+      readyToGenerate: userTurns >= 3,
+      source: "fallback" as const,
+    });
   }
 }

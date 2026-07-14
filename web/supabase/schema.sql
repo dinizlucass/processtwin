@@ -5,7 +5,7 @@ create extension if not exists "pgcrypto";
 
 create type process_status as enum ('rascunho', 'em_revisao', 'publicado', 'obsoleto');
 create type criticality_level as enum ('alta', 'media', 'baixa');
-create type node_kind as enum ('start', 'end', 'task', 'decision');
+-- (node_kind era um enum; agora flow_node.kind é texto livre — ver tabela abaixo)
 create type activity_type as enum ('manual', 'semiautomatica', 'automatizada');
 create type risk_category as enum ('pessoas', 'sistemas', 'processos', 'regulatorio', 'externo', 'mudanca');
 
@@ -42,10 +42,12 @@ create table process (
   updated_at timestamptz not null default now()
 );
 
+-- kind é texto livre (start/end/intermediate/task/subprocess/decision/
+-- gateway_parallel/gateway_inclusive/data/annotation) — validado na aplicação.
 create table flow_node (
   process_id uuid not null references process(id) on delete cascade,
   node_id text not null, -- id local do react-flow (ex.: 't1'), único dentro do processo
-  kind node_kind not null,
+  kind text not null,
   label text not null,
   actor text,
   activity_type activity_type,
@@ -54,6 +56,7 @@ create table flow_node (
   uses_ai boolean not null default false,
   pos_x double precision not null default 0,
   pos_y double precision not null default 0,
+  attributes jsonb not null default '{}', -- descrição, sistemas, SLA, controles, etc.
   primary key (process_id, node_id)
 );
 
@@ -148,7 +151,7 @@ from o;
 
 with p as (select id from process where code = 'RH-001')
 insert into flow_node (process_id, node_id, kind, label, actor, activity_type, alert_frequency, tags, uses_ai, pos_x, pos_y)
-select p.id, v.node_id, v.kind::node_kind, v.label, v.actor, v.activity_type::activity_type, v.alert_frequency, v.tags, v.uses_ai, v.pos_x, v.pos_y
+select p.id, v.node_id, v.kind, v.label, v.actor, v.activity_type::activity_type, v.alert_frequency, v.tags, v.uses_ai, v.pos_x, v.pos_y
 from p, (values
   ('start', 'start', 'Início', null, null, null, array[]::text[], false, 20, 220),
   ('t1', 'task', 'Receber Solicitação', 'Analista de RH', 'manual', 'A cada 90 dias', array['RH','Onboarding'], false, 180, 188),

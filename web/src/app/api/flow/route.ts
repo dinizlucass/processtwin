@@ -1,10 +1,21 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import type { FlowNodeData } from "@/lib/flow-types";
+import { ATTRIBUTE_KEYS, type FlowNodeData } from "@/lib/flow-types";
 
 interface SavePayload {
   processId: string;
   nodes: { id: string; type: string; position: { x: number; y: number }; data: FlowNodeData }[];
   edges: { id: string; source: string; target: string; sourceHandle?: string; label?: string }[];
+}
+
+function extractAttributes(data: FlowNodeData): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {};
+  for (const key of ATTRIBUTE_KEYS) {
+    const value = data[key];
+    if (value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0)) {
+      attrs[key] = value;
+    }
+  }
+  return attrs;
 }
 
 export async function POST(req: Request) {
@@ -24,12 +35,13 @@ export async function POST(req: Request) {
       kind: n.data.kind,
       label: n.data.label,
       actor: n.data.actor ?? null,
-      activity_type: n.data.activityType ?? null,
+      activity_type: n.data.kind === "task" || n.data.kind === "subprocess" ? n.data.activityType ?? null : null,
       alert_frequency: n.data.alertFrequency ?? null,
       tags: n.data.tags ?? [],
       uses_ai: n.data.usesAI ?? false,
       pos_x: n.position.x,
       pos_y: n.position.y,
+      attributes: extractAttributes(n.data),
     }));
     const { error } = await supabase.from("flow_node").insert(nodeRows);
     if (error) return Response.json({ error: error.message }, { status: 500 });
