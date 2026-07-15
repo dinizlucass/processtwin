@@ -78,6 +78,22 @@ export const NODE_META: Record<NodeKind, NodeMeta> = {
 
 export const PALETTE_GROUPS: PaletteGroup[] = ["Eventos", "Atividades", "Gateways", "Artefatos"];
 
+// Dimensões iniciais por tipo — necessárias para o React Flow desenhar as
+// arestas antes/independente da medição do DOM (isNodeInitialized usa
+// initialWidth/initialHeight como fallback de measured).
+export const NODE_SIZE: Record<NodeKind, { width: number; height: number }> = {
+  start: { width: 48, height: 48 },
+  end: { width: 48, height: 48 },
+  intermediate: { width: 48, height: 48 },
+  task: { width: 176, height: 72 },
+  subprocess: { width: 176, height: 72 },
+  decision: { width: 64, height: 64 },
+  gateway_parallel: { width: 64, height: 64 },
+  gateway_inclusive: { width: 64, height: 64 },
+  data: { width: 124, height: 70 },
+  annotation: { width: 200, height: 44 },
+};
+
 export function defaultDataForKind(kind: NodeKind): FlowNodeData {
   const base: FlowNodeData = { kind, label: NODE_META[kind].defaultLabel };
   if (kind === "task" || kind === "subprocess") {

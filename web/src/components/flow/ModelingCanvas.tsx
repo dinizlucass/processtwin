@@ -15,14 +15,14 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
-  useUpdateNodeInternals,
+  useStoreApi,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { Palette } from "@/components/flow/Palette";
 import { PropertiesPanel } from "@/components/flow/PropertiesPanel";
 import { nodeTypes } from "@/components/flow/node-types";
-import { defaultDataForKind, type FlowNodeData, type NodeKind } from "@/lib/flow-types";
+import { NODE_SIZE, defaultDataForKind, type FlowNodeData, type NodeKind } from "@/lib/flow-types";
 
 let nextId = 1000;
 
@@ -62,16 +62,33 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
   const [version, setVersion] = useState(initialVersion);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const { screenToFlowPosition } = useReactFlow();
-  const updateNodeInternals = useUpdateNodeInternals();
+  const storeApi = useStoreApi();
 
-  // Recalcula os handleBounds de cada nó após a montagem. Sem isso, sob o
-  // double-mount do StrictMode em dev, os handles ficam sem medição e as
-  // arestas não são desenhadas (React Flow pula edges de nós não inicializados).
+  // Nesta stack (Next + React Flow v12) o ResizeObserver automático dos nós
+  // não dispara de forma confiável, então os nós ficam sem `measured`/
+  // handleBounds e o React Flow pula TODAS as arestas (getEdgePosition retorna
+  // null para nó não inicializado). Medimos os nós manualmente após o DOM
+  // montar — com retries e re-executando quando o número de nós muda.
   useEffect(() => {
-    const ids = initialNodes.map((n) => n.id);
-    const raf = requestAnimationFrame(() => ids.forEach((id) => updateNodeInternals(id)));
-    return () => cancelAnimationFrame(raf);
-  }, [initialNodes, updateNodeInternals]);
+    if (nodes.length === 0) return;
+    const measure = () => {
+      const state = storeApi.getState() as unknown as {
+        domNode: HTMLElement | null;
+        updateNodeInternals: (u: Map<string, { id: string; nodeElement: Element; force: boolean }>) => void;
+      };
+      const domNode = state.domNode;
+      if (!domNode) return;
+      const updates = new Map<string, { id: string; nodeElement: Element; force: boolean }>();
+      domNode.querySelectorAll(".react-flow__node").forEach((el) => {
+        const id = el.getAttribute("data-id");
+        if (id) updates.set(id, { id, nodeElement: el, force: true });
+      });
+      if (updates.size) state.updateNodeInternals(updates);
+    };
+    const timers = [30, 120, 300, 600].map((d) => setTimeout(measure, d));
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes.length, storeApi]);
 
   const onConnect = useCallback(
     (connection: Connection) =>
@@ -86,7 +103,11 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
       if (!kind) return;
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const id = `n-${nextId++}`;
-      setNodes((nds) => [...nds, { id, type: kind, position, data: defaultDataForKind(kind) }]);
+      const size = NODE_SIZE[kind];
+      setNodes((nds) => [
+        ...nds,
+        { id, type: kind, position, initialWidth: size.width, initialHeight: size.height, data: defaultDataForKind(kind) },
+      ]);
       setSelectedNodeId(id);
       setSelectedEdgeId(null);
     },

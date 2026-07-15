@@ -1,5 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { ActivityType, FlowNodeData, NodeKind } from "@/lib/flow-types";
+import { NODE_SIZE, type ActivityType, type FlowNodeData, type NodeKind } from "@/lib/flow-types";
 
 // ---------- Tipos do pré-mapeamento (saída da IA) ----------
 
@@ -248,6 +248,8 @@ export function toReactFlow(pm: PreMapping): { nodes: Node<FlowNodeData>[]; edge
     id: n.id,
     type: n.kind,
     position: pos.get(n.id) ?? { x: 0, y: 0 },
+    initialWidth: (NODE_SIZE[n.kind] ?? NODE_SIZE.task).width,
+    initialHeight: (NODE_SIZE[n.kind] ?? NODE_SIZE.task).height,
     data: {
       kind: n.kind,
       label: n.label,

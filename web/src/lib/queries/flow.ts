@@ -1,7 +1,7 @@
 import "server-only";
 import type { Node, Edge } from "@xyflow/react";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import type { FlowNodeData } from "@/lib/flow-types";
+import { NODE_SIZE, type FlowNodeData } from "@/lib/flow-types";
 
 interface FlowNodeRow {
   node_id: string;
@@ -44,10 +44,13 @@ export async function getProcessFlow(processId: string) {
 
   const nodes: Node<FlowNodeData>[] = (nodeRows as FlowNodeRow[]).map((r) => {
     const attrs = (r.attributes ?? {}) as Partial<FlowNodeData>;
+    const size = NODE_SIZE[r.kind] ?? NODE_SIZE.task;
     return {
       id: r.node_id,
       type: r.kind,
       position: { x: r.pos_x, y: r.pos_y },
+      initialWidth: size.width,
+      initialHeight: size.height,
       data: {
         kind: r.kind,
         label: r.label,
