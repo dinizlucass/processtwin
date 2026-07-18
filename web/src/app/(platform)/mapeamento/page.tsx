@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PreMappingPreview } from "@/components/flow/PreMappingPreview";
+import { VoiceInput } from "@/components/voice/VoiceInput";
 import type { PreMapping } from "@/lib/premapping";
 
 interface Message {
@@ -217,10 +218,11 @@ export default function MapeamentoPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
-              placeholder="Responda ou descreva o processo…"
+              placeholder="Responda, descreva o processo ou fale 🎤…"
               disabled={loadingChat}
               className="flex-1 rounded-[10px] border border-border bg-surface px-3.5 py-2.5 text-[13px] outline-none focus:border-indigo-500 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.12)] disabled:bg-page"
             />
+            <VoiceInput value={input} onChange={setInput} disabled={loadingChat} />
             <button
               onClick={() => send()}
               disabled={loadingChat}
