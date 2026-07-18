@@ -2,6 +2,7 @@ import "server-only";
 import type { Node, Edge } from "@xyflow/react";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { NODE_SIZE, type FlowNodeData } from "@/lib/flow-types";
+import { deriveLaneNodes, routeEdges } from "@/lib/premapping";
 
 interface FlowNodeRow {
   node_id: string;
@@ -75,16 +76,22 @@ export async function getProcessFlow(processId: string) {
     };
   });
 
-  const edges: Edge[] = (edgeRows as FlowEdgeRow[]).map((r) => ({
+  const rawEdges: Edge[] = (edgeRows as FlowEdgeRow[]).map((r) => ({
     id: r.edge_id,
     source: r.source_id,
     target: r.target_id,
-    sourceHandle: r.source_handle ?? undefined,
-    type: "smoothstep",
     label: r.label ?? undefined,
-    labelStyle: r.label === "Sim" ? { fill: "#059669", fontWeight: 700, fontSize: 11 } : r.label === "Não" ? { fill: "#dc2626", fontWeight: 700, fontSize: 11 } : undefined,
-    style: r.label === "Não" ? { stroke: "#94a3b8", strokeDasharray: "5 4" } : { stroke: "#94a3b8" },
   }));
+  // roteia por geometria (handles/estilo) para bater com o preview da IA
+  const edges = routeEdges(nodes, rawEdges);
+  // reconstrói as raias (faixas por ator) como nós de fundo
+  const laneNodes = deriveLaneNodes(nodes);
 
-  return { processId: process.id as string, name: process.name as string, version: process.version as number, nodes, edges };
+  return {
+    processId: process.id as string,
+    name: process.name as string,
+    version: process.version as number,
+    nodes: [...laneNodes, ...nodes] as Node[],
+    edges,
+  };
 }

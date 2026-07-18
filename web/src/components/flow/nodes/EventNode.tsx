@@ -31,6 +31,8 @@ export function EventNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
         {isStart && <span className="text-[9px] font-bold">INÍCIO</span>}
         {isEnd && <span className="text-[9px] font-bold">FIM</span>}
         {!isEnd && <Handle type="source" position={Position.Right} className="!bg-slate-400" />}
+        {!isEnd && <Handle type="source" position={Position.Bottom} id="b" className="!h-1 !w-1 !border-0 !bg-transparent" />}
+        {!isStart && <Handle type="target" position={Position.Bottom} id="b" className="!h-1 !w-1 !border-0 !bg-transparent" />}
       </div>
       {data.kind === "intermediate" && data.label && (
         <span className="mt-1 max-w-[120px] text-center text-[10px] font-semibold text-slate-600">{data.label}</span>

@@ -3,6 +3,7 @@ import { GatewayNode } from "@/components/flow/nodes/GatewayNode";
 import { EventNode } from "@/components/flow/nodes/EventNode";
 import { DataNode } from "@/components/flow/nodes/DataNode";
 import { AnnotationNode } from "@/components/flow/nodes/AnnotationNode";
+import { LaneNode } from "@/components/flow/nodes/LaneNode";
 
 export const nodeTypes = {
   start: EventNode,
@@ -15,4 +16,5 @@ export const nodeTypes = {
   gateway_inclusive: GatewayNode,
   data: DataNode,
   annotation: AnnotationNode,
+  lane: LaneNode,
 };

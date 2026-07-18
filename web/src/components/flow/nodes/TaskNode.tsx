@@ -49,6 +49,9 @@ export function TaskNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
       )}
 
       <Handle type="source" position={Position.Right} className="!bg-slate-400" />
+      {/* base: usada por arestas de retorno (loop) — invisível */}
+      <Handle type="source" position={Position.Bottom} id="b" className="!h-1 !w-1 !border-0 !bg-transparent" />
+      <Handle type="target" position={Position.Bottom} id="b" className="!h-1 !w-1 !border-0 !bg-transparent" />
     </div>
   );
 }

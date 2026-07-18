@@ -38,6 +38,7 @@ function labelTextStyleFor(label?: string) {
 }
 
 function minimapColor(node: Node): string {
+  if (node.type === "lane") return "transparent";
   const kind = (node.data as FlowNodeData)?.kind;
   if (kind === "start") return "#10b981";
   if (kind === "end") return "#ef4444";
@@ -50,7 +51,7 @@ interface ModelingCanvasProps {
   processId: string;
   processName: string;
   initialVersion: number;
-  initialNodes: Node<FlowNodeData>[];
+  initialNodes: Node[];
   initialEdges: Edge[];
 }
 
@@ -114,12 +115,14 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
     [screenToFlowPosition, setNodes],
   );
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  const selectedNode = (nodes.find((n) => n.id === selectedNodeId) ?? null) as Node<FlowNodeData> | null;
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId) ?? null;
 
   const patchNode = useCallback(
     (patch: Partial<FlowNodeData>) => {
-      setNodes((nds) => nds.map((n) => (n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n)));
+      setNodes((nds) =>
+        nds.map((n) => (n.id === selectedNodeId ? { ...n, data: { ...(n.data as FlowNodeData), ...patch } } : n)),
+      );
     },
     [selectedNodeId, setNodes],
   );
@@ -179,7 +182,9 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           processId,
-          nodes: nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
+          nodes: nodes
+            .filter((n) => n.type !== "lane")
+            .map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
           edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, label: e.label })),
         }),
       });
@@ -205,7 +210,7 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
             RASCUNHO · v{version}
           </span>
           <span className="text-[10.5px] text-slate-400">
-            {nodes.length} elementos · {edges.length} conexões
+            {nodes.filter((n) => n.type !== "lane").length} elementos · {edges.length} conexões
           </span>
         </div>
 
@@ -235,6 +240,7 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeClick={(_, node) => {
+            if (node.type === "lane") return;
             setSelectedNodeId(node.id);
             setSelectedEdgeId(null);
           }}

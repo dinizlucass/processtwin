@@ -13,6 +13,8 @@ export function DataNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
       <span className="text-[8.5px] font-bold tracking-wide text-slate-400 uppercase">Dados</span>
       <span className="text-[11.5px] leading-tight font-bold text-slate-700">{data.label}</span>
       <Handle type="source" position={Position.Right} className="!bg-slate-400" />
+      <Handle type="source" position={Position.Bottom} id="b" className="!h-1 !w-1 !border-0 !bg-transparent" />
+      <Handle type="target" position={Position.Bottom} id="b" className="!h-1 !w-1 !border-0 !bg-transparent" />
     </div>
   );
 }
