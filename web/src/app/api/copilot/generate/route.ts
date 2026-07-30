@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { GENERATION_SYSTEM_PROMPT, GENERATION_TOOL } from "@/lib/copilot-prompt";
 import { sanitizePreMapping, type PreMapping } from "@/lib/premapping";
+import { buildCoverageDigest, buildKnownFactsBlock, type Coverage, type ExtractedFacts } from "@/lib/phases";
 
 interface ChatMessage {
   role: "ai" | "user";
@@ -12,10 +13,12 @@ interface Body {
   messages: ChatMessage[];
   adjustment?: string;
   previousDraft?: PreMapping;
+  facts?: ExtractedFacts | null;
+  coverage?: Coverage | null;
 }
 
 export async function POST(req: Request) {
-  const { messages, adjustment, previousDraft } = (await req.json()) as Body;
+  const { messages, adjustment, previousDraft, facts, coverage } = (await req.json()) as Body;
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -31,11 +34,19 @@ export async function POST(req: Request) {
     .map((m) => `${m.role === "ai" ? "Entrevistador" : "Usuário"}: ${m.text}`)
     .join("\n");
 
+  // Duas âncoras: os fatos crus da transcrição (quando o mapeamento começou por
+  // upload) e a síntese por fase consolidada da conversa. Juntas deixam a
+  // geração fiel ao que foi realmente dito, em vez de inferir do nada.
+  const factsBlock = buildKnownFactsBlock(facts);
+  const coverageDigest = buildCoverageDigest(coverage);
+  const anchors = [factsBlock, coverageDigest].filter(Boolean).join("\n\n");
+  const anchorSection = anchors ? `${anchors}\n\n` : "";
+
   const userContent = adjustment
-    ? `Transcrição da entrevista:\n${transcript}\n\nPré-mapeamento anterior (JSON):\n${JSON.stringify(
+    ? `${anchorSection}Transcrição da entrevista:\n${transcript}\n\nPré-mapeamento anterior (JSON):\n${JSON.stringify(
         previousDraft,
       )}\n\nAjuste solicitado pelo usuário: "${adjustment}"\n\nGere o pré-mapeamento revisado aplicando esse ajuste e mantendo o resto coerente.`
-    : `Transcrição da entrevista:\n${transcript}\n\nGere o pré-mapeamento estruturado do processo.`;
+    : `${anchorSection}Transcrição da entrevista:\n${transcript}\n\nGere o pré-mapeamento estruturado do processo.`;
 
   const history: ChatCompletionMessageParam[] = [
     { role: "system", content: GENERATION_SYSTEM_PROMPT },
