@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { findOrCreateOwner } from "@/lib/queries/owner";
 import { processCode } from "@/lib/slug";
-import { handleForLabel, layoutNodes, sanitizePreMapping, type PreMapping } from "@/lib/premapping";
+import { computeLayout, handleForLabel, laneNodeId, sanitizePreMapping, type PreMapping } from "@/lib/premapping";
 
 interface Body {
   draft: PreMapping;
@@ -42,24 +42,41 @@ export async function POST(req: Request) {
   if (processError) return Response.json({ error: processError.message }, { status: 500 });
   const processId = process.id as string;
 
-  // 3. flow_node (com layout calculado no servidor para bater com o preview)
-  const pos = layoutNodes(draft.nodes, draft.edges);
-  if (draft.nodes.length > 0) {
-    const nodeRows = draft.nodes.map((n) => ({
-      process_id: processId,
-      node_id: n.id,
-      kind: n.kind,
-      label: n.label,
-      actor: n.actor ?? null,
-      activity_type: n.kind === "task" ? n.activityType || "manual" : null,
-      alert_frequency: null,
-      tags: [],
-      uses_ai: false,
-      pos_x: pos.get(n.id)?.x ?? 0,
-      pos_y: pos.get(n.id)?.y ?? 0,
-      attributes: n.systems && n.systems.length ? { systems: n.systems } : {},
-    }));
-    const { error } = await supabase.from("flow_node").insert(nodeRows);
+  // 3. flow_node + raias (layout calculado no servidor, idêntico ao preview) —
+  //    persistimos as raias (kind='lane') para o modelador mostrar exatamente as
+  //    mesmas swimlanes que a pessoa validou, já editáveis.
+  const { positions, lanes } = computeLayout(draft.nodes, draft.edges);
+  const laneRows = lanes.map((lane) => ({
+    process_id: processId,
+    node_id: laneNodeId(lane.key),
+    kind: "lane",
+    label: lane.label,
+    actor: null,
+    activity_type: null,
+    alert_frequency: null,
+    tags: [] as string[],
+    uses_ai: false,
+    pos_x: 0,
+    pos_y: lane.y,
+    attributes: { colorIndex: lane.index, height: lane.height, order: lane.index },
+  }));
+  const nodeRows = draft.nodes.map((n) => ({
+    process_id: processId,
+    node_id: n.id,
+    kind: n.kind,
+    label: n.label,
+    actor: n.actor ?? null,
+    activity_type: n.kind === "task" ? n.activityType || "manual" : null,
+    alert_frequency: null,
+    tags: [] as string[],
+    uses_ai: false,
+    pos_x: positions.get(n.id)?.x ?? 0,
+    pos_y: positions.get(n.id)?.y ?? 0,
+    attributes: n.systems && n.systems.length ? { systems: n.systems } : {},
+  }));
+  const allRows = [...laneRows, ...nodeRows];
+  if (allRows.length > 0) {
+    const { error } = await supabase.from("flow_node").insert(allRows);
     if (error) return Response.json({ error: error.message }, { status: 500 });
   }
 
