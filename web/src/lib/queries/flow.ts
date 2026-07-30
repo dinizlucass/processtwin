@@ -3,10 +3,11 @@ import type { Node, Edge } from "@xyflow/react";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { NODE_SIZE, type FlowNodeData } from "@/lib/flow-types";
 import { deriveLaneNodes, routeEdges } from "@/lib/premapping";
+import { laneNodesFromRows, reflowLanes, type PersistedLane } from "@/lib/lanes";
 
 interface FlowNodeRow {
   node_id: string;
-  kind: FlowNodeData["kind"];
+  kind: string; // pode ser um NodeKind ou "lane"
   label: string;
   actor: string | null;
   activity_type: FlowNodeData["activityType"] | null;
@@ -43,17 +44,22 @@ export async function getProcessFlow(processId: string) {
   if (nodesError) throw new Error(`Falha ao carregar nós: ${nodesError.message}`);
   if (edgesError) throw new Error(`Falha ao carregar conexões: ${edgesError.message}`);
 
-  const nodes: Node<FlowNodeData>[] = (nodeRows as FlowNodeRow[]).map((r) => {
+  const allRows = (nodeRows as FlowNodeRow[]) ?? [];
+  const laneRows = allRows.filter((r) => r.kind === "lane");
+  const contentRows = allRows.filter((r) => r.kind !== "lane");
+
+  const nodes: Node<FlowNodeData>[] = contentRows.map((r) => {
     const attrs = (r.attributes ?? {}) as Partial<FlowNodeData>;
-    const size = NODE_SIZE[r.kind] ?? NODE_SIZE.task;
+    const kind = r.kind as FlowNodeData["kind"];
+    const size = NODE_SIZE[kind] ?? NODE_SIZE.task;
     return {
       id: r.node_id,
-      type: r.kind,
+      type: kind,
       position: { x: r.pos_x, y: r.pos_y },
       initialWidth: size.width,
       initialHeight: size.height,
       data: {
-        kind: r.kind,
+        kind,
         label: r.label,
         actor: r.actor ?? undefined,
         activityType: r.activity_type ?? undefined,
@@ -84,14 +90,20 @@ export async function getProcessFlow(processId: string) {
   }));
   // roteia por geometria (handles/estilo) para bater com o preview da IA
   const edges = routeEdges(nodes, rawEdges);
-  // reconstrói as raias (faixas por ator) como nós de fundo
-  const laneNodes = deriveLaneNodes(nodes);
+
+  // raias: usa as persistidas (kind='lane') se houver; senão deriva pelos atores
+  const laneNodes =
+    laneRows.length > 0
+      ? laneNodesFromRows(
+          laneRows.map((r) => ({ node_id: r.node_id, label: r.label, pos_y: r.pos_y, attributes: r.attributes } as PersistedLane)),
+        )
+      : deriveLaneNodes(nodes);
 
   return {
     processId: process.id as string,
     name: process.name as string,
     version: process.version as number,
-    nodes: [...laneNodes, ...nodes] as Node[],
+    nodes: reflowLanes([...laneNodes, ...nodes]) as Node[],
     edges,
   };
 }

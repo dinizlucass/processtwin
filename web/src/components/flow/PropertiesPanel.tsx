@@ -9,6 +9,11 @@ import {
   type ActivityType,
   type FlowNodeData,
 } from "@/lib/flow-types";
+import type { LaneNodeData } from "@/lib/premapping";
+import { LANE_HEIGHT_STEP } from "@/lib/lanes";
+
+// Cores das raias (espelham LaneNode) — usadas no seletor de cor
+const LANE_SWATCHES = ["#6366f1", "#0d9488", "#d97706", "#db2777", "#475569"];
 
 // ---------- Campos reutilizáveis ----------
 
@@ -82,8 +87,16 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export function PropertiesPanel({
   node,
   edge,
+  lane,
+  laneCanMoveUp,
+  laneCanMoveDown,
   onNodeChange,
   onEdgeChange,
+  onLaneRename,
+  onLaneColor,
+  onLaneResize,
+  onLaneMove,
+  onLaneDelete,
   onDelete,
   onDuplicate,
   onSave,
@@ -91,13 +104,38 @@ export function PropertiesPanel({
 }: {
   node: Node<FlowNodeData> | null;
   edge: Edge | null;
+  lane: Node<LaneNodeData> | null;
+  laneCanMoveUp: boolean;
+  laneCanMoveDown: boolean;
   onNodeChange: (patch: Partial<FlowNodeData>) => void;
   onEdgeChange: (patch: Partial<Edge>) => void;
+  onLaneRename: (v: string) => void;
+  onLaneColor: (i: number) => void;
+  onLaneResize: (delta: number) => void;
+  onLaneMove: (dir: -1 | 1) => void;
+  onLaneDelete: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onSave: () => void;
   saveState: "idle" | "saving" | "saved" | "error";
 }) {
+  if (lane) {
+    return (
+      <PanelShell onSave={onSave} saveState={saveState}>
+        <LaneEditor
+          lane={lane}
+          canMoveUp={laneCanMoveUp}
+          canMoveDown={laneCanMoveDown}
+          onRename={onLaneRename}
+          onColor={onLaneColor}
+          onResize={onLaneResize}
+          onMove={onLaneMove}
+          onDelete={onLaneDelete}
+        />
+      </PanelShell>
+    );
+  }
+
   if (edge) {
     return (
       <PanelShell onSave={onSave} saveState={saveState}>
@@ -222,6 +260,104 @@ export function PropertiesPanel({
         </button>
       </div>
     </PanelShell>
+  );
+}
+
+function LaneEditor({
+  lane,
+  canMoveUp,
+  canMoveDown,
+  onRename,
+  onColor,
+  onResize,
+  onMove,
+  onDelete,
+}: {
+  lane: Node<LaneNodeData>;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onRename: (v: string) => void;
+  onColor: (i: number) => void;
+  onResize: (delta: number) => void;
+  onMove: (dir: -1 | 1) => void;
+  onDelete: () => void;
+}) {
+  const data = lane.data;
+  return (
+    <>
+      <div>
+        <div className="text-[10.5px] font-bold tracking-[.08em] text-slate-400 uppercase">Propriedades</div>
+        <div className="mt-1.5 text-[11.5px] font-semibold text-accent">Raia (Swimlane)</div>
+      </div>
+
+      <TextField
+        label="Responsável / Ator da raia"
+        value={data.label}
+        onChange={onRename}
+        placeholder="Ex.: Recursos Humanos, Diretoria…"
+      />
+      <p className="-mt-1 text-[10.5px] leading-snug text-slate-400">
+        Renomear atualiza o responsável das tarefas que estão nesta raia. Arraste tarefas para dentro dela para atribuí-las.
+      </p>
+
+      <SectionTitle>Cor</SectionTitle>
+      <div className="flex gap-2">
+        {LANE_SWATCHES.map((c, i) => {
+          const active = (data.tone ?? 0) % LANE_SWATCHES.length === i;
+          return (
+            <button
+              key={c}
+              onClick={() => onColor(i)}
+              className={`h-6 w-6 rounded-full border-2 transition-transform ${active ? "scale-110" : "border-transparent opacity-70 hover:opacity-100"}`}
+              style={{ background: c, borderColor: active ? "#0f172a" : "transparent" }}
+              title={`Cor ${i + 1}`}
+            />
+          );
+        })}
+      </div>
+
+      <SectionTitle>Altura</SectionTitle>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onResize(-LANE_HEIGHT_STEP)}
+          className="h-8 w-8 rounded-[9px] border border-border bg-page text-[15px] font-bold text-slate-600 hover:bg-slate-100"
+        >
+          −
+        </button>
+        <span className="flex-1 text-center text-[12.5px] font-semibold text-slate-600">{Math.round(data.height)}px</span>
+        <button
+          onClick={() => onResize(LANE_HEIGHT_STEP)}
+          className="h-8 w-8 rounded-[9px] border border-border bg-page text-[15px] font-bold text-slate-600 hover:bg-slate-100"
+        >
+          +
+        </button>
+      </div>
+
+      <SectionTitle>Ordem</SectionTitle>
+      <div className="flex gap-2">
+        <button
+          onClick={() => onMove(-1)}
+          disabled={!canMoveUp}
+          className="flex-1 rounded-[9px] border border-border bg-page px-3 py-2 text-[12px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+        >
+          ↑ Subir
+        </button>
+        <button
+          onClick={() => onMove(1)}
+          disabled={!canMoveDown}
+          className="flex-1 rounded-[9px] border border-border bg-page px-3 py-2 text-[12px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+        >
+          ↓ Descer
+        </button>
+      </div>
+
+      <button
+        onClick={onDelete}
+        className="mt-1 rounded-[9px] border border-danger-soft bg-danger-soft px-3 py-2 text-[12.5px] font-bold text-danger-strong hover:bg-red-100"
+      >
+        Excluir raia
+      </button>
+    </>
   );
 }
 

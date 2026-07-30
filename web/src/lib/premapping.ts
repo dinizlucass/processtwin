@@ -160,7 +160,7 @@ function dedupeById(nodes: DraftNode[]): DraftNode[] {
 
 // ---------- Auto-layout em SWIMLANES (colunas = ordem, linhas = ator) ----------
 
-const LANE_LABEL_W = 128; // largura da faixa de rótulo à esquerda de cada raia
+export const LANE_LABEL_W = 128; // largura da faixa de rótulo à esquerda de cada raia
 const SLOT_LEFT = LANE_LABEL_W + 44; // onde começa a 1ª coluna de nós
 const COL_GAP = 248; // distância entre centros de coluna
 const ROW_H = 108; // altura de cada sub-linha dentro de uma raia
@@ -327,7 +327,8 @@ export interface LaneNodeData extends Record<string, unknown> {
   width: number;
   height: number;
   labelWidth: number;
-  tone: number; // índice p/ alternar cor
+  tone: number; // índice de cor (colorIndex)
+  order?: number; // ordem vertical entre as raias (0 no topo)
 }
 
 export function laneNodeId(key: string): string {
@@ -380,12 +381,12 @@ export function deriveLaneNodes(nodes: Node<FlowNodeData>[]): Node<LaneNodeData>
       width: totalWidth,
       height,
       draggable: false,
-      selectable: false,
+      selectable: true,
       connectable: false,
       deletable: false,
       focusable: false,
       zIndex: -1,
-      data: { label: actor, width: totalWidth, height, labelWidth: LANE_LABEL_W, tone: i },
+      data: { label: actor, width: totalWidth, height, labelWidth: LANE_LABEL_W, tone: i, order: i },
     };
   });
 }

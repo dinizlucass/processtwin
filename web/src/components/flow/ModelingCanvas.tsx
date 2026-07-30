@@ -23,11 +23,25 @@ import { Palette } from "@/components/flow/Palette";
 import { PropertiesPanel } from "@/components/flow/PropertiesPanel";
 import { nodeTypes } from "@/components/flow/node-types";
 import { NODE_SIZE, defaultDataForKind, type FlowNodeData, type NodeKind } from "@/lib/flow-types";
+import type { LaneNodeData } from "@/lib/premapping";
+import {
+  DEFAULT_LANE_HEIGHT,
+  LANE_COLOR_COUNT,
+  LANE_HEIGHT_STEP,
+  MIN_LANE_HEIGHT,
+  isLane,
+  laneBandAt,
+  makeLane,
+  nextLaneId,
+  reflowLanes,
+} from "@/lib/lanes";
 
 let nextId = 1000;
 
+// tipos que "vivem" numa raia (recebem o responsável da raia ao serem soltos nela)
+const ASSIGNABLE: ReadonlySet<NodeKind> = new Set<NodeKind>(["task", "subprocess", "data"]);
+
 function labelStyleFor(label?: string) {
-  if (label === "Sim") return { stroke: "#94a3b8" };
   if (label === "Não") return { stroke: "#94a3b8", strokeDasharray: "5 4" };
   return { stroke: "#94a3b8" };
 }
@@ -47,6 +61,11 @@ function minimapColor(node: Node): string {
   return "#6366f1";
 }
 
+function nodeHeight(n: Node): number {
+  const size = NODE_SIZE[(n.data as FlowNodeData)?.kind as NodeKind] ?? NODE_SIZE.task;
+  return (n.height ?? n.initialHeight ?? size.height) as number;
+}
+
 interface ModelingCanvasProps {
   processId: string;
   processName: string;
@@ -56,20 +75,18 @@ interface ModelingCanvasProps {
 }
 
 function Canvas({ processId, processName, initialVersion, initialNodes, initialEdges }: ModelingCanvasProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(reflowLanes(initialNodes));
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [selectedLaneId, setSelectedLaneId] = useState<string | null>(null);
   const [version, setVersion] = useState(initialVersion);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const { screenToFlowPosition } = useReactFlow();
   const storeApi = useStoreApi();
 
-  // Nesta stack (Next + React Flow v12) o ResizeObserver automático dos nós
-  // não dispara de forma confiável, então os nós ficam sem `measured`/
-  // handleBounds e o React Flow pula TODAS as arestas (getEdgePosition retorna
-  // null para nó não inicializado). Medimos os nós manualmente após o DOM
-  // montar — com retries e re-executando quando o número de nós muda.
+  // Nesta stack (Next + React Flow v12) o ResizeObserver automático dos nós não
+  // dispara de forma confiável — medimos manualmente para as arestas aparecerem.
   useEffect(() => {
     if (nodes.length === 0) return;
     const measure = () => {
@@ -91,6 +108,12 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes.length, storeApi]);
 
+  const clearSelection = () => {
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setSelectedLaneId(null);
+  };
+
   const onConnect = useCallback(
     (connection: Connection) =>
       setEdges((eds) => addEdge({ ...connection, type: "smoothstep", style: { stroke: "#94a3b8" } }, eds)),
@@ -105,18 +128,54 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const id = `n-${nextId++}`;
       const size = NODE_SIZE[kind];
-      setNodes((nds) => [
-        ...nds,
-        { id, type: kind, position, initialWidth: size.width, initialHeight: size.height, data: defaultDataForKind(kind) },
-      ]);
+      const data = defaultDataForKind(kind);
+      setNodes((nds) => {
+        // se soltou dentro de uma raia, herda o responsável dela
+        if (ASSIGNABLE.has(kind)) {
+          const band = laneBandAt(position.y + size.height / 2, nds);
+          if (band) data.actor = (band.data as LaneNodeData).label;
+        }
+        return reflowLanes([
+          ...nds,
+          { id, type: kind, position, initialWidth: size.width, initialHeight: size.height, data },
+        ]);
+      });
       setSelectedNodeId(id);
       setSelectedEdgeId(null);
+      setSelectedLaneId(null);
     },
     [screenToFlowPosition, setNodes],
   );
 
-  const selectedNode = (nodes.find((n) => n.id === selectedNodeId) ?? null) as Node<FlowNodeData> | null;
+  // Ao soltar um nó, atribui-o à raia sob ele (responsável) e reflui as larguras.
+  const onNodeDragStop = useCallback(
+    (_: unknown, node: Node) => {
+      if (isLane(node)) return;
+      setNodes((nds) => {
+        const kind = (node.data as FlowNodeData)?.kind as NodeKind;
+        let next = nds;
+        if (ASSIGNABLE.has(kind)) {
+          const cy = node.position.y + nodeHeight(node) / 2;
+          const band = laneBandAt(cy, nds);
+          if (band) {
+            const actor = (band.data as LaneNodeData).label;
+            next = nds.map((n) => (n.id === node.id ? { ...n, data: { ...(n.data as FlowNodeData), actor } } : n));
+          }
+        }
+        return reflowLanes(next);
+      });
+    },
+    [setNodes],
+  );
+
+  const selectedNode = (nodes.find((n) => n.id === selectedNodeId && !isLane(n)) ?? null) as Node<FlowNodeData> | null;
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId) ?? null;
+  const selectedLane = (nodes.find((n) => n.id === selectedLaneId && isLane(n)) ?? null) as Node<LaneNodeData> | null;
+
+  const laneOrder = nodes
+    .filter(isLane)
+    .sort((a, b) => ((a.data as LaneNodeData).order ?? 0) - ((b.data as LaneNodeData).order ?? 0));
+  const laneIndex = selectedLane ? laneOrder.findIndex((l) => l.id === selectedLane.id) : -1;
 
   const patchNode = useCallback(
     (patch: Partial<FlowNodeData>) => {
@@ -145,6 +204,101 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
     [selectedEdgeId, setEdges],
   );
 
+  // ---------- Raias ----------
+
+  const addLane = useCallback(() => {
+    // id gerado FORA do updater — StrictMode invoca o updater 2x e geração de id
+    // ali dentro criaria ids divergentes (a seleção apontaria para um id descartado).
+    const id = nextLaneId();
+    setNodes((nds) => {
+      const count = nds.filter(isLane).length;
+      const lane = makeLane(`Nova raia ${count + 1}`, count % LANE_COLOR_COUNT, count, DEFAULT_LANE_HEIGHT, id);
+      return reflowLanes([...nds, lane]);
+    });
+    setSelectedLaneId(id);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }, [setNodes]);
+
+  const renameLane = useCallback(
+    (laneId: string, label: string) => {
+      setNodes((nds) => {
+        const lane = nds.find((n) => n.id === laneId);
+        if (!lane) return nds;
+        const top = lane.position.y;
+        const h = (lane.height ?? (lane.data as LaneNodeData).height ?? DEFAULT_LANE_HEIGHT) as number;
+        return reflowLanes(
+          nds.map((n) => {
+            if (n.id === laneId) return { ...n, data: { ...(n.data as LaneNodeData), label } };
+            const kind = (n.data as FlowNodeData)?.kind as NodeKind;
+            if (!isLane(n) && ASSIGNABLE.has(kind)) {
+              const cy = n.position.y + nodeHeight(n) / 2;
+              if (cy >= top && cy < top + h) return { ...n, data: { ...(n.data as FlowNodeData), actor: label } };
+            }
+            return n;
+          }),
+        );
+      });
+    },
+    [setNodes],
+  );
+
+  const setLaneColor = useCallback(
+    (laneId: string, tone: number) => {
+      setNodes((nds) => nds.map((n) => (n.id === laneId ? { ...n, data: { ...(n.data as LaneNodeData), tone } } : n)));
+    },
+    [setNodes],
+  );
+
+  const resizeLane = useCallback(
+    (laneId: string, delta: number) => {
+      setNodes((nds) =>
+        reflowLanes(
+          nds.map((n) => {
+            if (n.id !== laneId) return n;
+            const d = n.data as LaneNodeData;
+            const height = Math.max(MIN_LANE_HEIGHT, (d.height ?? DEFAULT_LANE_HEIGHT) + delta);
+            return { ...n, height, data: { ...d, height } };
+          }),
+        ),
+      );
+    },
+    [setNodes],
+  );
+
+  const moveLane = useCallback(
+    (laneId: string, dir: -1 | 1) => {
+      setNodes((nds) => {
+        const lanes = nds
+          .filter(isLane)
+          .sort((a, b) => ((a.data as LaneNodeData).order ?? 0) - ((b.data as LaneNodeData).order ?? 0));
+        const idx = lanes.findIndex((l) => l.id === laneId);
+        const swap = idx + dir;
+        if (idx < 0 || swap < 0 || swap >= lanes.length) return nds;
+        const a = lanes[idx];
+        const b = lanes[swap];
+        return reflowLanes(
+          nds.map((n) => {
+            if (n.id === a.id) return { ...n, data: { ...(n.data as LaneNodeData), order: swap } };
+            if (n.id === b.id) return { ...n, data: { ...(n.data as LaneNodeData), order: idx } };
+            return n;
+          }),
+        );
+      });
+    },
+    [setNodes],
+  );
+
+  const deleteLane = useCallback(
+    (laneId: string) => {
+      setNodes((nds) => reflowLanes(nds.filter((n) => n.id !== laneId)));
+      setSelectedLaneId(null);
+    },
+    [setNodes],
+  );
+
+  // ---------- Nós / arestas ----------
+
   const duplicateSelected = useCallback(() => {
     if (!selectedNode) return;
     const id = `n-${nextId++}`;
@@ -162,30 +316,40 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
   }, [selectedNode, setNodes]);
 
   const deleteSelected = useCallback(() => {
+    if (selectedLaneId) {
+      deleteLane(selectedLaneId);
+      return;
+    }
     if (selectedEdgeId) {
       setEdges((eds) => eds.filter((e) => e.id !== selectedEdgeId));
       setSelectedEdgeId(null);
       return;
     }
     if (selectedNodeId) {
-      setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
+      setNodes((nds) => reflowLanes(nds.filter((n) => n.id !== selectedNodeId)));
       setEdges((eds) => eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
       setSelectedNodeId(null);
     }
-  }, [selectedNodeId, selectedEdgeId, setNodes, setEdges]);
+  }, [selectedNodeId, selectedEdgeId, selectedLaneId, deleteLane, setNodes, setEdges]);
 
   const handleSave = useCallback(async () => {
     setSaveState("saving");
     try {
+      const contentNodes = nodes.filter((n) => !isLane(n));
+      const laneNodes = nodes
+        .filter(isLane)
+        .sort((a, b) => ((a.data as LaneNodeData).order ?? 0) - ((b.data as LaneNodeData).order ?? 0));
       const res = await fetch("/api/flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           processId,
-          nodes: nodes
-            .filter((n) => n.type !== "lane")
-            .map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
+          nodes: contentNodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
           edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, label: e.label })),
+          lanes: laneNodes.map((l, i) => {
+            const d = l.data as LaneNodeData;
+            return { id: l.id, label: d.label, posY: l.position.y, colorIndex: d.tone, height: d.height, order: i };
+          }),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -199,6 +363,9 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
     }
   }, [processId, nodes, edges]);
 
+  const contentCount = nodes.filter((n) => !isLane(n)).length;
+  const laneCount = nodes.filter(isLane).length;
+
   return (
     <div className="flex h-full">
       <Palette />
@@ -210,8 +377,24 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
             RASCUNHO · v{version}
           </span>
           <span className="text-[10.5px] text-slate-400">
-            {nodes.filter((n) => n.type !== "lane").length} elementos · {edges.length} conexões
+            {contentCount} elementos · {laneCount} raias · {edges.length} conexões
           </span>
+          <button
+            onClick={addLane}
+            className="ml-1 flex items-center gap-1 rounded-[8px] border border-accent-soft-border bg-accent-soft px-2.5 py-1 text-[11px] font-bold text-accent-hover hover:bg-indigo-100"
+            title="Adicionar uma raia (ator/responsável)"
+          >
+            <span className="text-[13px] leading-none">+</span> Raia
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex items-center gap-1 rounded-[8px] bg-accent px-3 py-1 text-[11px] font-bold text-white hover:bg-accent-hover"
+            title="Salvar o processo"
+          >
+            {saveState === "saving" ? "Salvando…" : "Salvar"}
+          </button>
+          {saveState === "saved" && <span className="text-[10.5px] font-bold text-success-strong">Salvo ✓</span>}
+          {saveState === "error" && <span className="text-[10.5px] font-bold text-danger-strong">Falhou</span>}
         </div>
 
         {(selectedNode || selectedEdge) && (
@@ -239,19 +422,24 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onNodeDragStop={onNodeDragStop}
           onNodeClick={(_, node) => {
-            if (node.type === "lane") return;
+            if (isLane(node)) {
+              setSelectedLaneId(node.id);
+              setSelectedNodeId(null);
+              setSelectedEdgeId(null);
+              return;
+            }
             setSelectedNodeId(node.id);
             setSelectedEdgeId(null);
+            setSelectedLaneId(null);
           }}
           onEdgeClick={(_, edge) => {
             setSelectedEdgeId(edge.id);
             setSelectedNodeId(null);
+            setSelectedLaneId(null);
           }}
-          onPaneClick={() => {
-            setSelectedNodeId(null);
-            setSelectedEdgeId(null);
-          }}
+          onPaneClick={clearSelection}
           onNodesDelete={(deleted) => {
             if (deleted.some((n) => n.id === selectedNodeId)) setSelectedNodeId(null);
           }}
@@ -272,8 +460,16 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
       <PropertiesPanel
         node={selectedNode}
         edge={selectedEdge}
+        lane={selectedLane}
+        laneCanMoveUp={laneIndex > 0}
+        laneCanMoveDown={laneIndex >= 0 && laneIndex < laneOrder.length - 1}
         onNodeChange={patchNode}
         onEdgeChange={patchEdge}
+        onLaneRename={(v) => selectedLaneId && renameLane(selectedLaneId, v)}
+        onLaneColor={(i) => selectedLaneId && setLaneColor(selectedLaneId, i)}
+        onLaneResize={(d) => selectedLaneId && resizeLane(selectedLaneId, d)}
+        onLaneMove={(dir) => selectedLaneId && moveLane(selectedLaneId, dir)}
+        onLaneDelete={() => selectedLaneId && deleteLane(selectedLaneId)}
         onDelete={deleteSelected}
         onDuplicate={duplicateSelected}
         onSave={handleSave}
