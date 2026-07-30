@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function NewProcessForm() {
+export function NewProcessForm({ folderId, folderName }: { folderId?: string | null; folderName?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -21,7 +21,7 @@ export function NewProcessForm() {
       const res = await fetch("/api/processes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: { name, criticality }, department: department || undefined }),
+        body: JSON.stringify({ answers: { name, criticality }, department: department || undefined, folderId: folderId ?? null }),
       });
       if (!res.ok) throw new Error(await res.text());
       const { processId } = (await res.json()) as { processId: string };
@@ -49,6 +49,11 @@ export function NewProcessForm() {
       onSubmit={handleSubmit}
       className="flex flex-wrap items-end gap-3 rounded-[14px] border border-border bg-surface p-4 shadow-sm"
     >
+      {folderName && (
+        <div className="w-full text-[11px] font-semibold text-muted">
+          Criando em <span className="font-bold text-accent">📁 {folderName}</span>
+        </div>
+      )}
       <div className="flex flex-col gap-1">
         <label className="text-[11px] font-bold text-muted">Nome do processo</label>
         <input

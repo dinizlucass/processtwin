@@ -58,7 +58,11 @@ function slugify(name: string) {
 }
 
 export async function POST(req: Request) {
-  const { answers, department } = (await req.json()) as { answers: Answers; department?: string };
+  const { answers, department, folderId } = (await req.json()) as {
+    answers: Answers;
+    department?: string;
+    folderId?: string | null;
+  };
   const supabase = supabaseAdmin();
 
   let ownerId: string | null = null;
@@ -97,6 +101,8 @@ export async function POST(req: Request) {
       uses_ai: usesAI,
       ai_detail: detail ?? null,
       esg_tags: esgTags,
+      // só inclui folder_id quando há pasta (evita erro se a migração 003 não rodou)
+      ...(folderId ? { folder_id: folderId } : {}),
     })
     .select("id,code")
     .single();
