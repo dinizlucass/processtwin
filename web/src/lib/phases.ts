@@ -311,3 +311,56 @@ export function buildCoverageDigest(coverage?: Coverage | null): string {
   return `SÍNTESE POR FASE (consolidada da conversa até aqui — use como guia estruturado, complementando os fatos da transcrição):
 ${lines.join("\n")}`;
 }
+
+// ---------- Formulário de Métricas (preenchido no próprio chat) ----------
+//
+// Na fase "Métricas", em vez de perguntar item a item, a entrevista devolve um
+// formulário editável já pré-preenchido (transcrição/conversa). O usuário
+// revisa, ajusta e confirma de uma vez.
+
+export interface MetricsFields {
+  frequencia?: string;
+  volume?: string;
+  tempo?: string;
+  sla?: string;
+  controles?: string;
+}
+
+export interface InterviewForm {
+  tipo: "metricas";
+  campos: MetricsFields;
+}
+
+export const METRICS_FIELD_DEFS: {
+  key: keyof MetricsFields;
+  label: string;
+  placeholder: string;
+}[] = [
+  { key: "frequencia", label: "Frequência", placeholder: "Diário, semanal, mensal…" },
+  { key: "volume", label: "Volume médio", placeholder: "Ex.: 20 casos por semana" },
+  { key: "tempo", label: "Tempo por caso/etapa", placeholder: "Ex.: 2h por caso" },
+  { key: "sla", label: "SLA", placeholder: "Ex.: 1 dia útil" },
+  { key: "controles", label: "Controles", placeholder: "Ex.: conferência manual, alertas…" },
+];
+
+const METRICS_LABEL = new Map(METRICS_FIELD_DEFS.map((f) => [f.key, f.label]));
+
+/** Mantém só as chaves válidas e limpa vazios. */
+export function normalizeMetricsFields(raw: unknown): MetricsFields {
+  const out: MetricsFields = {};
+  if (!raw || typeof raw !== "object") return out;
+  const src = raw as Record<string, unknown>;
+  for (const { key } of METRICS_FIELD_DEFS) {
+    const v = src[key];
+    if (typeof v === "string" && v.trim()) out[key] = v.trim();
+  }
+  return out;
+}
+
+/** Transforma o formulário confirmado em uma mensagem do usuário para a conversa. */
+export function metricsToMessage(f: MetricsFields): string {
+  const parts = METRICS_FIELD_DEFS.filter(({ key }) => f[key]?.trim()).map(
+    ({ key }) => `${METRICS_LABEL.get(key)}: ${f[key]!.trim()}`,
+  );
+  return parts.length ? `Métricas — ${parts.join("; ")}` : "Sem métricas relevantes para este processo.";
+}

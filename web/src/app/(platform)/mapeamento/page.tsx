@@ -2,18 +2,22 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PreMappingPreview } from "@/components/flow/PreMappingPreview";
+import { PreMappingEditor } from "@/components/flow/PreMappingEditor";
 import { VoiceInput } from "@/components/voice/VoiceInput";
 import type { PreMapping } from "@/lib/premapping";
 import {
+  METRICS_FIELD_DEFS,
   PHASES,
   coverageFromFacts,
   coverageProgress,
   coverageReady,
   firstOpenPhaseNumber,
   mergeCoverage,
+  metricsToMessage,
   type Coverage,
   type ExtractedFacts,
+  type InterviewForm,
+  type MetricsFields,
 } from "@/lib/phases";
 
 interface Message {
@@ -32,6 +36,8 @@ export default function MapeamentoPage() {
   const [messages, setMessages] = useState<Message[]>([{ role: "ai", text: OPENING }]);
   const [facts, setFacts] = useState<ExtractedFacts | null>(null);
   const [coverage, setCoverage] = useState<Coverage | null>(null);
+  const [metricsForm, setMetricsForm] = useState<MetricsFields | null>(null);
+  const [metricsDismissed, setMetricsDismissed] = useState(false);
   const [input, setInput] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([
     "Admissão de Colaboradores — garante contratação em conformidade",
@@ -57,6 +63,11 @@ export default function MapeamentoPage() {
   const progressPercent = coverage && coverage.length
     ? coverageProgress(coverage)
     : Math.min(100, Math.max(0, Math.round(((phase - 1) / 7) * 100)));
+
+  // Fase de Métricas → oferece o formulário (pré-preenchido pelo modelo quando
+  // há). Não é obrigatório: pode ser dispensado ("Pular") e responder no chat.
+  const metricsPhaseN = PHASES.find((p) => p.key === "metricas")?.n ?? 6;
+  const showMetricsForm = startMode === "chat" && phase === metricsPhaseN && !metricsDismissed;
   useEffect(() => {
     if (chatRef.current && startMode === "chat") {
       chatRef.current.scrollTop = chatRef.current.scrollHeight;
@@ -100,15 +111,21 @@ export default function MapeamentoPage() {
         phase: number;
         readyToGenerate: boolean;
         coverage?: Coverage;
+        form?: InterviewForm | null;
       };
       const afterAi = [...afterUser, { role: "ai" as const, text: data.reply }];
+      const nextPhase = data.phase || phase;
       setMessages(afterAi);
       setSuggestions(data.suggestions ?? []);
-      setPhase(data.phase || phase);
+      setPhase(nextPhase);
+      // Ao sair da fase de Métricas, "re-arma" o formulário para uma próxima vez.
+      if (nextPhase !== metricsPhaseN) setMetricsDismissed(false);
       // Funde sem regredir: o piso da transcrição se mantém e a % só cresce.
       const mergedCoverage = mergeCoverage(coverage, data.coverage ?? null);
       setCoverage(mergedCoverage);
       setCanGenerate(data.readyToGenerate || coverageReady(mergedCoverage));
+      // Formulário de métricas: mostra pré-preenchido quando a fase é Métricas.
+      setMetricsForm(data.form?.tipo === "metricas" ? data.form.campos : null);
       void persistConversation(afterAi, "em_andamento");
     } catch (err) {
       console.error("[mapeamento] falha no chat", err);
@@ -116,6 +133,17 @@ export default function MapeamentoPage() {
     } finally {
       setLoadingChat(false);
     }
+  }
+
+  function updateMetric(key: keyof MetricsFields, value: string) {
+    setMetricsForm((prev) => ({ ...(prev ?? {}), [key]: value }));
+  }
+
+  async function submitMetrics() {
+    if (loadingChat) return;
+    const text = metricsToMessage(metricsForm ?? {});
+    setMetricsForm(null);
+    await send(text);
   }
 
   async function generate(adjustment?: string) {
@@ -201,6 +229,7 @@ export default function MapeamentoPage() {
       setFacts(data.facts ?? null);
       setCoverage(seeded);
       setSuggestions([]);
+      setMetricsForm(null);
       setMessages([{ role: "ai", text: introMessage }]);
       // Fase atual vem da MESMA fonte que gera a % (a cobertura), então o
       // ponteiro e o percentual não se contradizem. fase_inicial é só fallback.
@@ -221,6 +250,7 @@ export default function MapeamentoPage() {
     return (
       <ReviewView
         draft={draft}
+        onDraftChange={setDraft}
         generating={generating}
         saving={saving}
         adjustText={adjustText}
@@ -249,7 +279,7 @@ export default function MapeamentoPage() {
             <div className="text-[14px] font-bold">Gênio de Processos</div>
             <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-success-strong">
               <span className="h-1.5 w-1.5 rounded-full bg-success-strong" />
-              Entrevista consultiva
+              Online
             </div>
           </div>
         </div>
@@ -337,6 +367,55 @@ export default function MapeamentoPage() {
                 <div className="flex justify-start">
                   <div className="rounded-2xl rounded-bl-[4px] border border-border bg-surface px-3.5 py-2.5 text-[13px] text-muted">
                     Pensando…
+                  </div>
+                </div>
+              )}
+              {showMetricsForm && !loadingChat && (
+                <div className="flex justify-start">
+                  <div className="w-full max-w-[92%] rounded-2xl rounded-bl-[4px] border border-border bg-surface p-3.5 shadow-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="mb-0.5 text-[12.5px] font-bold text-slate-800">Métricas do processo</div>
+                        <div className="mb-3 text-[11px] text-slate-500">Revise e ajuste o que a IA já capturou; complete o que faltar. É opcional.</div>
+                      </div>
+                      <button
+                        onClick={() => setMetricsDismissed(true)}
+                        title="Fechar e responder no chat"
+                        className="flex-none rounded-md px-1.5 text-[15px] leading-none text-slate-400 hover:text-slate-600"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="flex flex-col gap-2.5">
+                      {METRICS_FIELD_DEFS.map((f) => (
+                        <label key={f.key} className="flex flex-col gap-1">
+                          <span className="text-[11px] font-semibold text-slate-500">{f.label}</span>
+                          <input
+                            value={metricsForm?.[f.key] ?? ""}
+                            onChange={(e) => updateMetric(f.key, e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && submitMetrics()}
+                            placeholder={f.placeholder}
+                            className="rounded-[8px] border border-border bg-page px-3 py-2 text-[12.5px] outline-none focus:border-indigo-400 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.12)]"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={submitMetrics}
+                        disabled={loadingChat}
+                        className="flex-1 rounded-[9px] bg-accent px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
+                      >
+                        Confirmar métricas
+                      </button>
+                      <button
+                        onClick={() => setMetricsDismissed(true)}
+                        disabled={loadingChat}
+                        className="rounded-[9px] border border-border px-4 py-2 text-[12.5px] font-semibold text-muted hover:bg-page disabled:opacity-40"
+                      >
+                        Pular
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -461,16 +540,26 @@ export default function MapeamentoPage() {
             com atributos e recomendações — você revisa e ajusta antes de salvar.
           </p>
           <button
-            onClick={() => generate()}
-            disabled={generating || (!canGenerate && messages.filter((m) => m.role === "user").length < 2)}
+            onClick={() => (draft ? setMode("review") : generate())}
+            disabled={generating || (!draft && !canGenerate && messages.filter((m) => m.role === "user").length < 2)}
             className="mt-4 w-full rounded-[10px] bg-accent px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
           >
-            {generating ? "Gerando pré-mapeamento…" : "Gerar pré-mapeamento"}
+            {generating ? "Gerando pré-mapeamento…" : draft ? "Voltar ao pré-mapeamento" : "Gerar pré-mapeamento"}
           </button>
-          {!canGenerate && (
-            <p className="mt-2 text-[11px] text-slate-500">
-              Continue a entrevista para um rascunho mais completo — ou gere agora com o que já foi dito.
-            </p>
+          {draft ? (
+            <button
+              onClick={() => generate()}
+              disabled={generating}
+              className="mt-2 w-full rounded-[10px] border border-accent-soft-border px-4 py-2 text-[12px] font-semibold text-accent-hover hover:bg-accent-soft/60 disabled:opacity-40"
+            >
+              Gerar de novo com a conversa atual
+            </button>
+          ) : (
+            !canGenerate && (
+              <p className="mt-2 text-[11px] text-slate-500">
+                Continue a entrevista para um rascunho mais completo — ou gere agora com o que já foi dito.
+              </p>
+            )
           )}
           {errorMsg && <p className="mt-2 text-[11.5px] font-semibold text-danger-strong">{errorMsg}</p>}
         </div>
@@ -485,6 +574,7 @@ const criticalityLabel: Record<string, string> = { alta: "Alta", media: "Média"
 
 function ReviewView({
   draft,
+  onDraftChange,
   generating,
   saving,
   adjustText,
@@ -495,6 +585,7 @@ function ReviewView({
   errorMsg,
 }: {
   draft: PreMapping;
+  onDraftChange: (pm: PreMapping) => void;
   generating: boolean;
   saving: boolean;
   adjustText: string;
@@ -537,10 +628,11 @@ function ReviewView({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-slate-50/60 shadow-sm">
-          <PreMappingPreview preMapping={draft} />
+          <PreMappingEditor preMapping={draft} onChange={onDraftChange} />
         </div>
         <p className="text-[11.5px] text-slate-500">
-          Rascunho gerado pela IA. Revise ao lado, peça ajustes ou salve — no modelador você refina posições, atributos e conexões.
+          Rascunho da IA — já editável: adicione tarefas/decisões, conecte, edite rótulo, executor e tipo. As posições são
+          recalculadas automaticamente; no modelador você refina posições e raias.
         </p>
       </div>
 
