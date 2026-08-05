@@ -80,14 +80,73 @@ export function renderPhaseKeysForJson(): string {
   return PHASES.map((p) => `${p.n}. "${p.key}" (${p.label}): ${p.goal}`).join("\n");
 }
 
-/** Mantém só as chaves canônicas e normaliza vazios em null. */
+/** minúsculas, sem acento, pontuação/espaços → "_". */
+function slug(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+// Pistas por fase, para casar chaves que o modelo às vezes renomeia.
+const PHASE_HINTS: Record<PhaseKey, string[]> = {
+  visao_geral: ["visao", "geral", "overview", "objetivo", "nome", "dono", "owner"],
+  gatilhos: ["gatilho", "trigger", "entrada", "input", "saida", "output"],
+  fluxo: ["fluxo", "etapa", "passo", "step", "flow", "atividade"],
+  sistemas: ["sistema", "ecossistema", "erp", "ferramenta", "aplicativo", "system"],
+  regras: ["regra", "decisao", "excecao", "aprovac", "criterio", "rule"],
+  metricas: ["metrica", "volume", "tempo", "sla", "frequencia", "metric", "kpi"],
+  dores: ["dor", "risco", "gargalo", "oportunidade", "problema", "pain"],
+};
+
+/** Casa uma chave qualquer com a fase canônica: exata → rótulo → heurística. */
+function canonicalKeyFor(rawKey: string): PhaseKey | null {
+  const norm = slug(rawKey);
+  if (!norm) return null;
+  for (const p of PHASES) if (norm === p.key) return p.key;
+  for (const p of PHASES) if (norm === slug(p.label)) return p.key;
+  for (const p of PHASES) if (PHASE_HINTS[p.key].some((h) => norm.includes(h))) return p.key;
+  return null;
+}
+
+/** Achata qualquer valor (string, número, array, objeto) em um texto legível. */
+function coerceFactValue(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v.trim() || null;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) {
+    const parts = v.map(coerceFactValue).filter((s): s is string => Boolean(s));
+    return parts.length ? parts.join("; ") : null;
+  }
+  if (typeof v === "object") {
+    const parts = Object.entries(v as Record<string, unknown>)
+      .map(([k, val]) => {
+        const s = coerceFactValue(val);
+        return s ? `${k}: ${s}` : null;
+      })
+      .filter((s): s is string => Boolean(s));
+    return parts.length ? parts.join("; ") : null;
+  }
+  return null;
+}
+
+/**
+ * Normaliza o objeto de fatos vindo do modelo para as 7 chaves canônicas.
+ * Tolerante: casa chaves renomeadas/acentuadas e aceita valores que não sejam
+ * string (arrays de etapas, objetos), achatando-os em texto. Assim uma pequena
+ * variação de formato do LLM não zera mais a cobertura.
+ */
 export function normalizeFacts(raw: unknown): ExtractedFacts {
   const facts: ExtractedFacts = {};
+  for (const k of PHASE_KEYS) facts[k] = null;
   if (!raw || typeof raw !== "object") return facts;
-  const src = raw as Record<string, unknown>;
-  for (const key of PHASE_KEYS) {
-    const v = src[key];
-    facts[key] = typeof v === "string" && v.trim() ? v.trim() : null;
+  for (const [rawKey, value] of Object.entries(raw as Record<string, unknown>)) {
+    const key = canonicalKeyFor(rawKey);
+    if (!key || facts[key]) continue; // 1ª ocorrência vence; não sobrescreve com vazio
+    const coerced = coerceFactValue(value);
+    if (coerced) facts[key] = coerced;
   }
   return facts;
 }
@@ -206,6 +265,23 @@ export function coverageReady(coverage?: Coverage | null): boolean {
     const s = byKey.get(k);
     return s === "coberto" || s === "parcial";
   });
+}
+
+/**
+ * Número (1..7) da primeira fase ainda "vazia" — usado para posicionar o
+ * ponteiro/etapa atual a partir da MESMA fonte que gera a %, evitando que
+ * eles se contradigam. Se tudo já tem informação, usa o fallback do modelo.
+ */
+export function firstOpenPhaseNumber(coverage?: Coverage | null, fallback?: number): number {
+  const clampFallback = fallback && fallback >= 1 && fallback <= PHASE_COUNT ? fallback : undefined;
+  if (coverage && coverage.length) {
+    const byKey = new Map(coverage.map((c) => [c.key, c.status]));
+    for (const p of PHASES) {
+      if ((byKey.get(p.key) ?? "vazio") === "vazio") return p.n;
+    }
+    return clampFallback ?? PHASE_COUNT; // tudo preenchido
+  }
+  return clampFallback ?? 1;
 }
 
 /** Progresso ponderado: coberto = 1, parcial = 0,5. Retorna 0..100. */

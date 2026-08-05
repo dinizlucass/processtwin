@@ -10,6 +10,7 @@ import {
   coverageFromFacts,
   coverageProgress,
   coverageReady,
+  firstOpenPhaseNumber,
   mergeCoverage,
   type Coverage,
   type ExtractedFacts,
@@ -196,14 +197,14 @@ export default function MapeamentoPage() {
       // Guarda os fatos extraídos para injetar em TODA chamada seguinte
       // (entrevista e geração) — é o que ancora o mapeamento na transcrição.
       // A cobertura inicial já reflete o que a transcrição cobriu.
+      const seeded = coverageFromFacts(data.facts ?? null);
       setFacts(data.facts ?? null);
-      setCoverage(coverageFromFacts(data.facts ?? null));
+      setCoverage(seeded);
       setSuggestions([]);
       setMessages([{ role: "ai", text: introMessage }]);
-      // Se a IA definir uma fase inicial (ex: pulou a 1 e 2), a gente já atualiza aqui!
-      if (data.fase_inicial) {
-        setPhase(data.fase_inicial);
-      }
+      // Fase atual vem da MESMA fonte que gera a % (a cobertura), então o
+      // ponteiro e o percentual não se contradizem. fase_inicial é só fallback.
+      setPhase(firstOpenPhaseNumber(seeded, data.fase_inicial));
 
       setStartMode("chat");
 

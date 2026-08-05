@@ -42,6 +42,8 @@ REGRAS ESTRITAS:
     });
 
     const resultString = response.choices[0].message.content || "{}";
+    // TEMPORÁRIO: confirmar a forma crua que o modelo devolve (remover depois).
+    console.log("[extract-transcript] resposta crua do modelo:", resultString);
     const parsed = JSON.parse(resultString) as {
       facts?: unknown;
       fase_inicial?: number;
