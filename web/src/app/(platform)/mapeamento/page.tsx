@@ -25,6 +25,26 @@ interface Message {
   text: string;
 }
 
+interface ResumableConv {
+  id: string;
+  title: string;
+  status: string;
+  userMessageCount: number;
+  updatedAt: string;
+  processId: string | null;
+}
+
+function relativeWhen(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const min = Math.round(diff / 60000);
+  if (min < 1) return "agora mesmo";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "ontem" : `há ${d} dias`;
+}
+
 const OPENING =
   "Olá! Sou o Gênio de Processo, seu agente e ao seu dispor. Estou aqui para ajudar você a mapear, documentar e otimizar suas atividades de forma simples e rápida. \n\n Para começarmos, qual é o nome do processo que vamos estruturar hoje e qual é o principal objetivo dele?";
 
@@ -53,6 +73,10 @@ export default function MapeamentoPage() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [resumedFrom, setResumedFrom] = useState<string | null>(null); // título da conversa retomada
+  const [recentConvs, setRecentConvs] = useState<ResumableConv[]>([]);
+  const [showRecent, setShowRecent] = useState(false);
+
   const chatRef = useRef<HTMLDivElement>(null);
   const conversationId = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -73,6 +97,68 @@ export default function MapeamentoPage() {
       chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }
   }, [messages, startMode]);
+
+  // Retoma uma conversa salva: recarrega mensagens + fatos e recalcula a fase/cobertura
+  // a partir dos fatos (mesma fonte que o Copilot usa), então a entrevista continua de onde parou.
+  async function loadConversation(id: string) {
+    try {
+      const res = await fetch(`/api/ai-conversation?id=${id}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        id: string;
+        title: string;
+        messages: Message[];
+        extractedFields: ExtractedFacts | null;
+        status: string;
+      };
+      const msgs = (data.messages ?? []).filter((m) => m && typeof m.text === "string");
+      conversationId.current = data.id;
+      const loadedFacts = data.extractedFields && Object.keys(data.extractedFields).length ? data.extractedFields : null;
+      const seeded = coverageFromFacts(loadedFacts);
+      setFacts(loadedFacts);
+      setCoverage(seeded);
+      setMessages(msgs.length ? msgs : [{ role: "ai", text: OPENING }]);
+      setPhase(firstOpenPhaseNumber(seeded));
+      const userTurns = msgs.filter((m) => m.role === "user").length;
+      setCanGenerate(coverageReady(seeded) || userTurns >= 2);
+      setSuggestions([]);
+      setMetricsForm(null);
+      setResumedFrom(data.title || "conversa anterior");
+      setStartMode("chat");
+      // mantém o id na URL para que um refresh continue retomando a mesma conversa
+      if (typeof window !== "undefined") window.history.replaceState(null, "", `/mapeamento?c=${data.id}`);
+    } catch (err) {
+      console.error("[mapeamento] falha ao retomar conversa", err);
+    }
+  }
+
+  // No mount: se veio ?c=<id>, retoma direto; senão, busca conversas recentes
+  // para oferecer "continuar de onde parou" na tela de seleção.
+  useEffect(() => {
+    const cid = new URLSearchParams(window.location.search).get("c");
+    if (cid) {
+      void loadConversation(cid);
+      return;
+    }
+    fetch("/api/ai-conversation")
+      .then((r) => (r.ok ? r.json() : { conversations: [] }))
+      .then((d: { conversations: ResumableConv[] }) => setRecentConvs(d.conversations ?? []))
+      .catch(() => setRecentConvs([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function startFresh() {
+    conversationId.current = null;
+    setResumedFrom(null);
+    setMessages([{ role: "ai", text: OPENING }]);
+    setFacts(null);
+    setCoverage(null);
+    setPhase(1);
+    setCanGenerate(false);
+    setSuggestions(["Admissão de Colaboradores — garante contratação em conformidade"]);
+    setStartMode("chat");
+    if (typeof window !== "undefined") window.history.replaceState(null, "", "/mapeamento");
+  }
 
   async function persistConversation(msgs: Message[], status: string, processId?: string) {
     try {
@@ -328,7 +414,7 @@ export default function MapeamentoPage() {
 
               {/* Botão Do Zero */}
               <button
-                onClick={() => setStartMode("chat")}
+                onClick={startFresh}
                 disabled={isUploading}
                 className="group flex flex-col items-center justify-center gap-4 rounded-2xl border border-border bg-surface p-6 text-center shadow-sm transition-all hover:border-accent hover:bg-accent-soft hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -345,10 +431,88 @@ export default function MapeamentoPage() {
                 </div>
               </button>
             </div>
+
+            {/* CONTINUAR DE ONDE PAROU — discreto: um botão que revela as recentes */}
+            {recentConvs.length > 0 && (
+              <div className="mt-7 flex w-full max-w-[500px] flex-col items-center">
+                <button
+                  onClick={() => setShowRecent((v) => !v)}
+                  className="flex items-center gap-2 rounded-full border border-border bg-surface/80 px-4 py-2 text-[12px] font-semibold text-slate-500 shadow-sm transition-all hover:border-accent-soft-border hover:text-accent-hover hover:shadow"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 8v4l3 2" /><path d="M3.05 11a9 9 0 1 1 .5 4" /><path d="M3 21v-5h5" />
+                  </svg>
+                  {showRecent ? "Ocultar conversas anteriores" : "Ver conversas anteriores"}
+                  <svg
+                    width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+                    className={`transition-transform duration-300 ${showRecent ? "rotate-180" : ""}`}
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+
+                {/* reveal suave: altura + opacidade + leve subida (estilo inline p/ não depender do JIT) */}
+                <div
+                  style={{
+                    width: "100%",
+                    overflow: "hidden",
+                    maxHeight: showRecent ? 360 : 0,
+                    opacity: showRecent ? 1 : 0,
+                    transform: showRecent ? "translateY(0)" : "translateY(-6px)",
+                    transition: "max-height .34s ease, opacity .28s ease, transform .3s ease",
+                  }}
+                >
+                  <div className="pt-3">
+                    <div className="flex flex-col gap-2">
+                      {recentConvs.slice(0, 3).map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => loadConversation(c.id)}
+                          disabled={isUploading}
+                          tabIndex={showRecent ? 0 : -1}
+                          className="group flex items-center gap-3 rounded-[12px] border border-border bg-surface px-4 py-2.5 text-left transition-colors hover:border-accent-soft-border hover:bg-accent-soft/50 disabled:opacity-50"
+                        >
+                          <span className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] bg-accent-soft text-accent">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 8v4l3 2" /><path d="M3.05 11a9 9 0 1 1 .5 4" /><path d="M3 21v-5h5" />
+                            </svg>
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-[13px] font-semibold text-slate-700">{c.title}</div>
+                            <div className="text-[11px] text-slate-400">
+                              {c.userMessageCount} {c.userMessageCount === 1 ? "resposta" : "respostas"} · {relativeWhen(c.updatedAt)}
+                            </div>
+                          </div>
+                          <span className="flex-none text-[12px] font-bold text-accent opacity-0 transition-opacity group-hover:opacity-100">
+                            Continuar →
+                          </span>
+                        </button>
+                      ))}
+                      <a href="/conversas" className="mt-0.5 text-center text-[11.5px] font-semibold text-slate-400 hover:text-accent">
+                        Ver histórico completo →
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           /* CORPO DO CHAT */
           <>
+            {resumedFrom && (
+              <div className="flex items-center gap-2 border-b border-accent-soft-border bg-accent-soft px-5 py-2 text-[11.5px] text-accent-hover">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 8v4l3 2" /><path d="M3.05 11a9 9 0 1 1 .5 4" /><path d="M3 21v-5h5" />
+                </svg>
+                <span className="flex-1">
+                  Retomando <b>{resumedFrom}</b> — continue de onde parou.
+                </span>
+                <button onClick={startFresh} className="flex-none font-semibold text-accent hover:underline">
+                  Começar nova
+                </button>
+              </div>
+            )}
             <div ref={chatRef} className="flex flex-1 flex-col gap-3 overflow-auto bg-slate-50/60 p-5">
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>

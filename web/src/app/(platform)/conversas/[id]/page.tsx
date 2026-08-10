@@ -50,10 +50,18 @@ export default async function ConversaDetalhePage({ params }: { params: Promise<
             <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${toneBadge[statusTone[conversation.status] ?? "accent"]}`}>
               {statusLabel[conversation.status] ?? conversation.status}
             </span>
+            {conversation.status !== "concluida" && (
+              <Link
+                href={`/mapeamento?c=${conversation.id}`}
+                className="rounded-[9px] bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-hover"
+              >
+                Continuar conversa →
+              </Link>
+            )}
             {conversation.processId && (
               <Link
                 href={`/modelagem/${conversation.processId}`}
-                className="rounded-[9px] bg-accent px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-accent-hover"
+                className="rounded-[9px] border border-border px-3 py-1.5 text-[12px] font-semibold text-accent hover:bg-accent-soft"
               >
                 Abrir processo →
               </Link>
