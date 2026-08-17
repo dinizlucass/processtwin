@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { PHASE_COUNT, normalizeFacts, renderPhaseKeysForJson } from "@/lib/phases";
+import { PHASE_COUNT, normalizeFacts, normalizeOpeningFields, renderPhaseKeysForJson } from "@/lib/phases";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -27,9 +27,10 @@ SUAS INSTRUÇÕES:
 1. Devolva um objeto "facts" com EXATAMENTE as ${PHASE_COUNT} chaves acima. Para cada fase, escreva um resumo objetivo e detalhado do que a transcrição diz (na fase "fluxo", liste as etapas em ordem, cada uma com verbo + objeto e o executor; na fase "sistemas", diga qual sistema é usado em qual etapa). Se a transcrição não mencionar dados suficientes para uma fase, o valor deve ser explicitamente null — nunca invente.
 2. Identifique a PRIMEIRA FASE (em ordem de 1 a ${PHASE_COUNT}) que ficou com dados ausentes ou muito incompletos e devolva em "fase_inicial" (inteiro). Ex.: se as fases 1, 2 e 3 estão claras mas falta a 4, retorne 4. Se tudo estiver preenchido, retorne ${PHASE_COUNT}.
 3. Devolva "mensagem_inicial" (string): resuma em tom amigável e consultivo o que você já conseguiu mapear com a transcrição e faça UMA pergunta direta e específica sobre a "fase_inicial" para continuar o mapeamento.
+4. Devolva "opening" (objeto) com estes campos DISCRETOS, preenchidos com o que a transcrição disser — string vazia "" quando a transcrição não informar (NUNCA invente): "nome" (nome do processo), "objetivo", "dono" (responsável, com cargo se houver), "area" (departamento), "criticidade" (exatamente "Alta", "Média" ou "Baixa", ou "" se não der pra inferir), "frequencia", "volume" (volume médio).
 
 REGRAS ESTRITAS:
-- Retorne EXCLUSIVAMENTE um objeto JSON no formato { "facts": { ... }, "fase_inicial": inteiro, "mensagem_inicial": string }.
+- Retorne EXCLUSIVAMENTE um objeto JSON no formato { "facts": { ... }, "opening": { ... }, "fase_inicial": inteiro, "mensagem_inicial": string }.
 - Não adicione textos fora do JSON.`;
 
     const response = await openai.chat.completions.create({
@@ -46,6 +47,7 @@ REGRAS ESTRITAS:
     console.log("[extract-transcript] resposta crua do modelo:", resultString);
     const parsed = JSON.parse(resultString) as {
       facts?: unknown;
+      opening?: unknown;
       fase_inicial?: number;
       mensagem_inicial?: string;
     };
@@ -53,6 +55,7 @@ REGRAS ESTRITAS:
     // Aceita tanto o formato novo ({ facts: {...} }) quanto um objeto plano
     // (compatibilidade), e normaliza para as chaves canônicas das fases.
     const facts = normalizeFacts(parsed.facts ?? parsed);
+    const opening = normalizeOpeningFields(parsed.opening ?? parsed);
     const faseInicial =
       Number.isInteger(parsed.fase_inicial) && parsed.fase_inicial! >= 1 && parsed.fase_inicial! <= PHASE_COUNT
         ? parsed.fase_inicial
@@ -60,6 +63,7 @@ REGRAS ESTRITAS:
 
     return NextResponse.json({
       facts,
+      opening,
       fase_inicial: faseInicial,
       mensagem_inicial: parsed.mensagem_inicial ?? "",
     });

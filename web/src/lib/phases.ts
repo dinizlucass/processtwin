@@ -364,3 +364,78 @@ export function metricsToMessage(f: MetricsFields): string {
   );
   return parts.length ? `Métricas — ${parts.join("; ")}` : "Sem métricas relevantes para este processo.";
 }
+
+// ---------- Formulário de abertura (Visão Geral + volumetria) ----------
+//
+// No início de um bate-papo do zero, em vez de perguntar item a item, o usuário
+// preenche um formulário com o essencial + volumetria (opcional). Vira a
+// primeira mensagem da conversa e o Copilot segue para fluxo/sistemas/regras.
+
+export interface OpeningFields {
+  nome?: string;
+  objetivo?: string;
+  dono?: string;
+  area?: string;
+  criticidade?: string;
+  frequencia?: string;
+  volume?: string;
+}
+
+export const CRITICALITY_OPTIONS = ["Alta", "Média", "Baixa"] as const;
+
+export const OPENING_FIELD_DEFS: {
+  key: keyof OpeningFields;
+  label: string;
+  placeholder: string;
+  kind?: "text" | "criticidade";
+  group: "geral" | "volumetria";
+}[] = [
+  { key: "nome", label: "Nome do processo", placeholder: "Ex.: Admissão de Colaboradores", group: "geral" },
+  { key: "objetivo", label: "Objetivo", placeholder: "Para que esse processo existe?", group: "geral" },
+  { key: "dono", label: "Dono / responsável", placeholder: "Ex.: Ana Souza — Coord. de RH", group: "geral" },
+  { key: "area", label: "Área", placeholder: "Ex.: RH", group: "geral" },
+  { key: "criticidade", label: "Criticidade", placeholder: "", kind: "criticidade", group: "geral" },
+  { key: "frequencia", label: "Frequência (opcional)", placeholder: "Diário, semanal, mensal…", group: "volumetria" },
+  { key: "volume", label: "Volume médio (opcional)", placeholder: "Ex.: 20 casos por semana", group: "volumetria" },
+];
+
+const OPENING_LABEL = new Map(OPENING_FIELD_DEFS.map((f) => [f.key, f.label.replace(" (opcional)", "")]));
+
+/** Normaliza a criticidade para uma das opções (Alta/Média/Baixa) ou vazio. */
+function normalizeCriticality(v: string): string | undefined {
+  const norm = v
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+  if (norm.includes("alta")) return "Alta";
+  if (norm.includes("media")) return "Média";
+  if (norm.includes("baixa")) return "Baixa";
+  return undefined;
+}
+
+/** Mantém só as chaves válidas do formulário de abertura; vazio quando não houver. */
+export function normalizeOpeningFields(raw: unknown): OpeningFields {
+  const out: OpeningFields = {};
+  if (!raw || typeof raw !== "object") return out;
+  const src = raw as Record<string, unknown>;
+  for (const { key } of OPENING_FIELD_DEFS) {
+    const v = src[key];
+    if (typeof v === "string" && v.trim()) out[key] = v.trim();
+  }
+  if (out.criticidade) out.criticidade = normalizeCriticality(out.criticidade);
+  return out;
+}
+
+/** Transforma o formulário de abertura em uma mensagem do usuário para a conversa. */
+export function openingToMessage(f: OpeningFields): string {
+  const line = (group: "geral" | "volumetria") =>
+    OPENING_FIELD_DEFS.filter((d) => d.group === group && f[d.key]?.trim()).map(
+      (d) => `${OPENING_LABEL.get(d.key)}: ${f[d.key]!.trim()}`,
+    );
+  const gerais = line("geral");
+  const vol = line("volumetria");
+  const parts: string[] = [];
+  if (gerais.length) parts.push(`Visão geral — ${gerais.join("; ")}`);
+  if (vol.length) parts.push(`Volumetria — ${vol.join("; ")}`);
+  return parts.length ? parts.join(". ") : "Vamos começar o mapeamento deste processo.";
+}

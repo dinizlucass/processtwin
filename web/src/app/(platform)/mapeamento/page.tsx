@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PreMappingEditor } from "@/components/flow/PreMappingEditor";
+import { ModelingCanvas, type FlowSavePayload } from "@/components/flow/ModelingCanvas";
 import { VoiceInput } from "@/components/voice/VoiceInput";
 import type { PreMapping } from "@/lib/premapping";
+import { preMappingToEditorFlow } from "@/lib/draft-flow";
 import {
+  CRITICALITY_OPTIONS,
   METRICS_FIELD_DEFS,
+  OPENING_FIELD_DEFS,
   PHASES,
   coverageFromFacts,
   coverageProgress,
@@ -14,10 +17,13 @@ import {
   firstOpenPhaseNumber,
   mergeCoverage,
   metricsToMessage,
+  normalizeOpeningFields,
+  openingToMessage,
   type Coverage,
   type ExtractedFacts,
   type InterviewForm,
   type MetricsFields,
+  type OpeningFields,
 } from "@/lib/phases";
 
 interface Message {
@@ -48,6 +54,9 @@ function relativeWhen(iso: string): string {
 const OPENING =
   "Olá! Sou o Gênio de Processo, seu agente e ao seu dispor. Estou aqui para ajudar você a mapear, documentar e otimizar suas atividades de forma simples e rápida. \n\n Para começarmos, qual é o nome do processo que vamos estruturar hoje e qual é o principal objetivo dele?";
 
+const OPENING_FORM_GREETING =
+  "Olá! Sou o Gênio de Processo. Para começarmos rápido, preencha o essencial do processo abaixo — o que não souber, deixe em branco. Depois eu sigo com você pelo fluxo, sistemas, regras e dores.";
+
 export default function MapeamentoPage() {
   const router = useRouter();
   const [startMode, setStartMode] = useState<"select" | "chat">("select");
@@ -58,6 +67,8 @@ export default function MapeamentoPage() {
   const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [metricsForm, setMetricsForm] = useState<MetricsFields | null>(null);
   const [metricsDismissed, setMetricsDismissed] = useState(false);
+  const [openingForm, setOpeningForm] = useState<OpeningFields>({});
+  const [showOpeningForm, setShowOpeningForm] = useState(false);
   const [input, setInput] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([
     "Admissão de Colaboradores — garante contratação em conformidade",
@@ -70,7 +81,7 @@ export default function MapeamentoPage() {
   const [draft, setDraft] = useState<PreMapping | null>(null);
   const [generating, setGenerating] = useState(false);
   const [adjustText, setAdjustText] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [draftKey, setDraftKey] = useState(0); // muda a cada geração → reseeda o editor
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [resumedFrom, setResumedFrom] = useState<string | null>(null); // título da conversa retomada
@@ -123,6 +134,7 @@ export default function MapeamentoPage() {
       setCanGenerate(coverageReady(seeded) || userTurns >= 2);
       setSuggestions([]);
       setMetricsForm(null);
+      setShowOpeningForm(false);
       setResumedFrom(data.title || "conversa anterior");
       setStartMode("chat");
       // mantém o id na URL para que um refresh continue retomando a mesma conversa
@@ -150,14 +162,33 @@ export default function MapeamentoPage() {
   function startFresh() {
     conversationId.current = null;
     setResumedFrom(null);
-    setMessages([{ role: "ai", text: OPENING }]);
+    setMessages([{ role: "ai", text: OPENING_FORM_GREETING }]);
     setFacts(null);
     setCoverage(null);
     setPhase(1);
     setCanGenerate(false);
-    setSuggestions(["Admissão de Colaboradores — garante contratação em conformidade"]);
+    setSuggestions([]);
+    setOpeningForm({});
+    setShowOpeningForm(true);
     setStartMode("chat");
     if (typeof window !== "undefined") window.history.replaceState(null, "", "/mapeamento");
+  }
+
+  function updateOpening(key: keyof OpeningFields, value: string) {
+    setOpeningForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function submitOpening() {
+    if (loadingChat) return;
+    setShowOpeningForm(false);
+    await send(openingToMessage(openingForm));
+  }
+
+  // Prefere conversar: fecha o form. Sem transcrição (chat do zero), cai na
+  // pergunta clássica; com transcrição, mantém o intro já mostrado.
+  function skipOpening() {
+    setShowOpeningForm(false);
+    if (!facts) setMessages([{ role: "ai", text: OPENING }]);
   }
 
   async function persistConversation(msgs: Message[], status: string, processId?: string) {
@@ -247,6 +278,7 @@ export default function MapeamentoPage() {
       }
       const { draft: newDraft } = (await res.json()) as { draft: PreMapping };
       setDraft(newDraft);
+      setDraftKey((k) => k + 1); // reseeda o editor com o novo rascunho
       setMode("review");
       setAdjustText("");
       void persistConversation(messages, "premapeamento_gerado");
@@ -258,9 +290,12 @@ export default function MapeamentoPage() {
     }
   }
 
-  async function commit() {
+  // Salva a partir do editor completo do pré-mapeamento: cria o processo
+  // (atributos, sistemas, recomendações) e grava o fluxo EDITADO por cima,
+  // preservando posições/raias, e abre o modelador. Reaproveita os endpoints
+  // existentes — sem mudança de backend.
+  async function commitFromEditor(payload: FlowSavePayload) {
     if (!draft) return;
-    setSaving(true);
     setErrorMsg(null);
     try {
       const res = await fetch("/api/mapping/commit", {
@@ -270,14 +305,22 @@ export default function MapeamentoPage() {
       });
       if (!res.ok) {
         const { error } = (await res.json()) as { error?: string };
-        throw new Error(error ?? "Falha ao salvar");
+        throw new Error(error ?? "Falha ao criar o processo");
       }
       const { processId } = (await res.json()) as { processId: string };
+
+      const flowRes = await fetch("/api/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ processId, ...payload }),
+      });
+      if (!flowRes.ok) throw new Error(await flowRes.text());
+
       router.push(`/modelagem/${processId}`);
     } catch (err) {
       console.error("[mapeamento] falha ao salvar", err);
       setErrorMsg(err instanceof Error ? err.message : "Falha ao salvar no repositório.");
-      setSaving(false);
+      throw err; // deixa o botão do editor mostrar o estado de erro
     }
   }
 
@@ -302,11 +345,12 @@ export default function MapeamentoPage() {
 
       const data = (await res.json()) as {
         facts?: ExtractedFacts;
+        opening?: unknown;
         fase_inicial?: number;
         mensagem_inicial?: string;
       };
 
-      const introMessage = data.mensagem_inicial || "Documento processado! Vamos continuar o mapeamento?";
+      const introMessage = data.mensagem_inicial || "Documento processado! Revise abaixo o que extraí — complete o que faltar.";
 
       // Guarda os fatos extraídos para injetar em TODA chamada seguinte
       // (entrevista e geração) — é o que ancora o mapeamento na transcrição.
@@ -316,6 +360,10 @@ export default function MapeamentoPage() {
       setCoverage(seeded);
       setSuggestions([]);
       setMetricsForm(null);
+      // Abre o formulário inicial JÁ PREENCHIDO com o que a transcrição trouxe
+      // (campos sem resposta ficam vazios) para o usuário revisar e completar.
+      setOpeningForm(normalizeOpeningFields(data.opening));
+      setShowOpeningForm(true);
       setMessages([{ role: "ai", text: introMessage }]);
       // Fase atual vem da MESMA fonte que gera a % (a cobertura), então o
       // ponteiro e o percentual não se contradizem. fase_inicial é só fallback.
@@ -336,14 +384,13 @@ export default function MapeamentoPage() {
     return (
       <ReviewView
         draft={draft}
-        onDraftChange={setDraft}
+        draftKey={draftKey}
         generating={generating}
-        saving={saving}
         adjustText={adjustText}
         onAdjustChange={setAdjustText}
         onAdjust={() => adjustText.trim() && generate(adjustText.trim())}
         onBack={() => setMode("interview")}
-        onSave={commit}
+        onSaveFlow={commitFromEditor}
         errorMsg={errorMsg}
       />
     );
@@ -534,6 +581,68 @@ export default function MapeamentoPage() {
                   </div>
                 </div>
               )}
+              {showOpeningForm && !loadingChat && (
+                <div className="flex justify-start">
+                  <div className="w-full max-w-[94%] rounded-2xl rounded-bl-[4px] border border-border bg-surface p-3.5 shadow-sm">
+                    <div className="mb-0.5 text-[12.5px] font-bold text-slate-800">Visão geral do processo</div>
+                    <div className="mb-3 text-[11px] text-slate-500">
+                      Preencha o que souber — os campos de volumetria são opcionais.
+                    </div>
+                    <div className="flex flex-col gap-2.5">
+                      {OPENING_FIELD_DEFS.map((f, i) => (
+                        <div key={f.key} className="flex flex-col gap-2.5">
+                          {f.group === "volumetria" && OPENING_FIELD_DEFS[i - 1]?.group !== "volumetria" && (
+                            <div className="mt-1 border-t border-border-soft pt-2.5 text-[10.5px] font-bold uppercase tracking-[.05em] text-muted">
+                              Volumetria (opcional)
+                            </div>
+                          )}
+                          <label className="flex flex-col gap-1">
+                            <span className="text-[11px] font-semibold text-slate-500">{f.label}</span>
+                            {f.kind === "criticidade" ? (
+                              <select
+                                value={openingForm[f.key] ?? ""}
+                                onChange={(e) => updateOpening(f.key, e.target.value)}
+                                className="rounded-[8px] border border-border bg-page px-2.5 py-2 text-[12.5px] outline-none focus:border-indigo-400"
+                              >
+                                <option value="">— selecione —</option>
+                                {CRITICALITY_OPTIONS.map((c) => (
+                                  <option key={c} value={c}>
+                                    {c}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                value={openingForm[f.key] ?? ""}
+                                onChange={(e) => updateOpening(f.key, e.target.value)}
+                                onKeyDown={(e) => e.key === "Enter" && submitOpening()}
+                                placeholder={f.placeholder}
+                                className="rounded-[8px] border border-border bg-page px-3 py-2 text-[12.5px] outline-none focus:border-indigo-400 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.12)]"
+                              />
+                            )}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={submitOpening}
+                        disabled={loadingChat}
+                        className="flex-1 rounded-[9px] bg-accent px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
+                      >
+                        Começar
+                      </button>
+                      <button
+                        onClick={skipOpening}
+                        disabled={loadingChat}
+                        className="rounded-[9px] border border-border px-4 py-2 text-[12.5px] font-semibold text-muted hover:bg-page disabled:opacity-40"
+                      >
+                        Prefiro conversar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
               {showMetricsForm && !loadingChat && (
                 <div className="flex justify-start">
                   <div className="w-full max-w-[92%] rounded-2xl rounded-bl-[4px] border border-border bg-surface p-3.5 shadow-sm">
@@ -586,7 +695,7 @@ export default function MapeamentoPage() {
             </div>
 
             <div className="flex flex-col gap-2.5 border-t border-border-soft px-4 py-3.5">
-              {suggestions.length > 0 && !loadingChat && (
+              {suggestions.length > 0 && !loadingChat && !showOpeningForm && (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="flex-none text-[11px] font-semibold text-slate-400">
                     {suggestions.length > 1 ? "Sugestões:" : "Sugestão:"}
@@ -738,27 +847,29 @@ const criticalityLabel: Record<string, string> = { alta: "Alta", media: "Média"
 
 function ReviewView({
   draft,
-  onDraftChange,
+  draftKey,
   generating,
-  saving,
   adjustText,
   onAdjustChange,
   onAdjust,
   onBack,
-  onSave,
+  onSaveFlow,
   errorMsg,
 }: {
   draft: PreMapping;
-  onDraftChange: (pm: PreMapping) => void;
+  draftKey: number;
   generating: boolean;
-  saving: boolean;
   adjustText: string;
   onAdjustChange: (v: string) => void;
   onAdjust: () => void;
   onBack: () => void;
-  onSave: () => void;
+  onSaveFlow: (payload: FlowSavePayload) => Promise<void>;
   errorMsg: string | null;
 }) {
+  // Semeia o editor do rascunho; recompõe quando um novo rascunho é gerado.
+  const editorFlow = useMemo(() => preMappingToEditorFlow(draft), [draft]);
+  const [showAI, setShowAI] = useState(false);
+
   const attrs: { label: string; value?: string }[] = [
     { label: "Dono", value: draft.process.owner },
     { label: "Área", value: draft.process.department },
@@ -772,126 +883,111 @@ function ReviewView({
   ].filter((a) => a.value);
 
   return (
-    <div className="grid h-full grid-cols-[1.35fr_1fr] gap-5 px-8 py-6">
-      {/* PREVIEW DO FLUXO */}
-      <div className="flex min-h-0 flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="m-0 text-[18px] font-bold tracking-tight">{draft.process.name}</h1>
-              <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold text-accent-hover">
-                PRÉ-MAPEAMENTO IA
-              </span>
-            </div>
-            {draft.process.objective && (
-              <p className="mt-0.5 max-w-[60ch] text-[12px] text-muted">{draft.process.objective}</p>
-            )}
-          </div>
-          <button onClick={onBack} className="rounded-[9px] border border-border px-3 py-2 text-[12px] font-semibold text-muted hover:bg-page">
-            ← Voltar à entrevista
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-slate-50/60 shadow-sm">
-          <PreMappingEditor preMapping={draft} onChange={onDraftChange} />
-        </div>
-        <p className="text-[11.5px] text-slate-500">
-          Rascunho da IA — já editável: adicione tarefas/decisões, conecte, edite rótulo, executor e tipo. As posições são
-          recalculadas automaticamente; no modelador você refina posições e raias.
-        </p>
-      </div>
+    <div className="relative h-full">
+      {/* Editor COMPLETO — mesmas funcionalidades da modelagem manual */}
+      <ModelingCanvas
+        key={draftKey}
+        processName={draft.process.name}
+        initialVersion={1}
+        initialNodes={editorFlow.nodes}
+        initialEdges={editorFlow.edges}
+        onSave={onSaveFlow}
+        saveLabel="Salvar no repositório"
+        headerBadge="PRÉ-MAPEAMENTO IA"
+        topBarExtra={
+          <>
+            <button
+              onClick={onBack}
+              className="rounded-[8px] border border-border px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:bg-page"
+            >
+              ← Entrevista
+            </button>
+            <button
+              onClick={() => setShowAI((v) => !v)}
+              className="flex items-center gap-1 rounded-[8px] border border-accent-soft-border bg-accent-soft px-2.5 py-1 text-[11px] font-bold text-accent-hover hover:bg-indigo-100"
+            >
+              Ajustes da IA{draft.recommendations.length ? ` · ${draft.recommendations.length}` : ""}
+            </button>
+          </>
+        }
+      />
 
-      {/* PAINEL DE VALIDAÇÃO */}
-      <div className="flex min-h-0 flex-col gap-4 overflow-auto">
-        <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
-          <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Atributos</div>
-          <div className="mt-3 flex flex-col gap-0.5">
-            {attrs.length === 0 && <div className="text-[12px] text-slate-400">Nenhum atributo extraído ainda.</div>}
-            {attrs.map((a) => (
-              <div key={a.label} className="flex items-start justify-between gap-4 border-b border-border-soft py-2 last:border-b-0">
-                <span className="flex-none text-[12px] font-semibold text-muted">{a.label}</span>
-                <span className="text-right text-[12.5px] font-semibold text-ink">{a.value}</span>
-              </div>
-            ))}
+      {/* Painel flutuante com atributos, recomendações e "pedir ajuste à IA" */}
+      {showAI && (
+        <div className="absolute left-1/2 top-[64px] z-30 flex max-h-[calc(100%-84px)] w-80 -translate-x-1/2 flex-col overflow-auto rounded-2xl border border-border bg-surface p-4 shadow-lg">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[12px] font-bold uppercase tracking-[.06em] text-muted">Ajustes da IA</div>
+            <button onClick={() => setShowAI(false)} className="text-[16px] leading-none text-slate-400 hover:text-slate-600">
+              ×
+            </button>
           </div>
-        </div>
 
-        {draft.systems.length > 0 && (
-          <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
-            <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Sistemas</div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {draft.systems.map((s) => (
-                <span
-                  key={s.name}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                    s.isPrimary ? "bg-accent-soft text-accent" : "bg-page text-slate-500"
-                  }`}
-                >
-                  {s.name}
-                  {s.isPrimary ? " · principal" : ""}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {draft.recommendations.length > 0 && (
-          <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
-            <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Recomendações de melhoria</div>
-            <div className="mt-3 flex flex-col gap-2.5">
-              {draft.recommendations.map((r, i) => (
-                <div key={i} className="flex gap-2.5">
-                  {r.priority && (
-                    <span
-                      className={`mt-0.5 flex-none rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                        r.priority === "P1"
-                          ? "bg-success-soft text-success-strong"
-                          : r.priority === "P2"
-                            ? "bg-warning-soft text-warning-text"
-                            : "bg-page text-slate-500"
-                      }`}
-                    >
-                      {r.priority}
-                    </span>
-                  )}
-                  <div>
-                    <div className="text-[12.5px] font-semibold text-slate-800">{r.title}</div>
-                    {r.detail && <div className="text-[11.5px] text-muted">{r.detail}</div>}
+          {attrs.length > 0 && (
+            <div className="mb-3">
+              <div className="text-[11px] font-bold text-muted">Atributos</div>
+              <div className="mt-1.5 flex flex-col">
+                {attrs.map((a) => (
+                  <div key={a.label} className="flex items-start justify-between gap-3 border-b border-border-soft py-1.5 last:border-b-0">
+                    <span className="flex-none text-[11.5px] font-semibold text-muted">{a.label}</span>
+                    <span className="text-right text-[11.5px] font-semibold text-ink">{a.value}</span>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
-          <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Pedir ajuste à IA</div>
+          {draft.recommendations.length > 0 && (
+            <div className="mb-3">
+              <div className="text-[11px] font-bold text-muted">Recomendações de melhoria</div>
+              <div className="mt-1.5 flex flex-col gap-2">
+                {draft.recommendations.map((r, i) => (
+                  <div key={i} className="flex gap-2">
+                    {r.priority && (
+                      <span
+                        className={`mt-0.5 flex-none rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                          r.priority === "P1"
+                            ? "bg-success-soft text-success-strong"
+                            : r.priority === "P2"
+                              ? "bg-warning-soft text-warning-text"
+                              : "bg-page text-slate-500"
+                        }`}
+                      >
+                        {r.priority}
+                      </span>
+                    )}
+                    <div>
+                      <div className="text-[12px] font-semibold text-slate-800">{r.title}</div>
+                      {r.detail && <div className="text-[11px] text-muted">{r.detail}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="text-[11px] font-bold text-muted">Pedir ajuste à IA</div>
           <textarea
             value={adjustText}
             onChange={(e) => onAdjustChange(e.target.value)}
-            placeholder="Ex.: adiciona uma etapa de conferência antes da aprovação; o executor da triagem é o time de RH…"
+            placeholder="Ex.: adiciona uma etapa de conferência antes da aprovação…"
             rows={3}
             disabled={generating}
-            className="mt-2.5 w-full resize-none rounded-[10px] border border-border bg-page px-3 py-2.5 text-[12.5px] outline-none focus:border-indigo-400 disabled:opacity-60"
+            className="mt-1.5 w-full resize-none rounded-[10px] border border-border bg-page px-3 py-2 text-[12px] outline-none focus:border-indigo-400 disabled:opacity-60"
           />
           <button
             onClick={onAdjust}
             disabled={generating || !adjustText.trim()}
-            className="mt-2 w-full rounded-[10px] border border-accent-soft-border bg-accent-soft px-4 py-2 text-[12.5px] font-bold text-accent-hover hover:bg-indigo-100 disabled:opacity-40"
+            className="mt-2 w-full rounded-[10px] border border-accent-soft-border bg-accent-soft px-4 py-2 text-[12px] font-bold text-accent-hover hover:bg-indigo-100 disabled:opacity-40"
           >
-            {generating ? "Regerando…" : "Aplicar ajuste"}
+            {generating ? "Regerando…" : "Aplicar ajuste (regera o fluxo)"}
           </button>
+          <p className="mt-1.5 text-[10.5px] text-slate-400">
+            Regenerar substitui o fluxo pelo novo rascunho da IA — edições manuais no canvas são perdidas.
+          </p>
+
+          {errorMsg && <div className="mt-2 text-[11.5px] font-semibold text-danger-strong">{errorMsg}</div>}
         </div>
-
-        {errorMsg && <div className="text-[12px] font-semibold text-danger-strong">{errorMsg}</div>}
-
-        <button
-          onClick={onSave}
-          disabled={saving || generating}
-          className="rounded-[10px] bg-success-strong px-4 py-3 text-[13px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
-        >
-          {saving ? "Salvando…" : "Salvar no repositório e abrir no modelador"}
-        </button>
-      </div>
+      )}
     </div>
   );
 }

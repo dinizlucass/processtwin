@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -66,15 +66,37 @@ function nodeHeight(n: Node): number {
   return (n.height ?? n.initialHeight ?? size.height) as number;
 }
 
+export interface FlowSavePayload {
+  nodes: { id: string; type?: string; position: { x: number; y: number }; data: FlowNodeData }[];
+  edges: { id: string; source: string; target: string; sourceHandle?: string | null; label?: unknown }[];
+  lanes: { id: string; label: string; posY: number; colorIndex: number; height: number; order: number }[];
+}
+
 interface ModelingCanvasProps {
-  processId: string;
+  processId?: string;
   processName: string;
   initialVersion: number;
   initialNodes: Node[];
   initialEdges: Edge[];
+  // Modo rascunho (pré-mapeamento): quando presente, o "Salvar" chama isto em
+  // vez de gravar em /api/flow (que exige um processId já existente).
+  onSave?: (payload: FlowSavePayload) => Promise<void>;
+  saveLabel?: string;
+  headerBadge?: string;
+  topBarExtra?: ReactNode;
 }
 
-function Canvas({ processId, processName, initialVersion, initialNodes, initialEdges }: ModelingCanvasProps) {
+function Canvas({
+  processId,
+  processName,
+  initialVersion,
+  initialNodes,
+  initialEdges,
+  onSave,
+  saveLabel,
+  headerBadge,
+  topBarExtra,
+}: ModelingCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(reflowLanes(initialNodes));
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -339,18 +361,27 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
       const laneNodes = nodes
         .filter(isLane)
         .sort((a, b) => ((a.data as LaneNodeData).order ?? 0) - ((b.data as LaneNodeData).order ?? 0));
+      const payload: FlowSavePayload = {
+        nodes: contentNodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data as FlowNodeData })),
+        edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, label: e.label })),
+        lanes: laneNodes.map((l, i) => {
+          const d = l.data as LaneNodeData;
+          return { id: l.id, label: d.label, posY: l.position.y, colorIndex: d.tone, height: d.height, order: i };
+        }),
+      };
+
+      // Modo rascunho: delega o salvar (criar processo + gravar fluxo) ao pai.
+      if (onSave) {
+        await onSave(payload);
+        setSaveState("saved");
+        setTimeout(() => setSaveState("idle"), 1800);
+        return;
+      }
+
       const res = await fetch("/api/flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          processId,
-          nodes: contentNodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
-          edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, label: e.label })),
-          lanes: laneNodes.map((l, i) => {
-            const d = l.data as LaneNodeData;
-            return { id: l.id, label: d.label, posY: l.position.y, colorIndex: d.tone, height: d.height, order: i };
-          }),
-        }),
+        body: JSON.stringify({ processId, ...payload }),
       });
       if (!res.ok) throw new Error(await res.text());
       const { version: newVersion } = (await res.json()) as { version: number };
@@ -361,7 +392,7 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
       console.error("[modelagem] falha ao salvar", err);
       setSaveState("error");
     }
-  }, [processId, nodes, edges]);
+  }, [processId, nodes, edges, onSave]);
 
   const contentCount = nodes.filter((n) => !isLane(n)).length;
   const laneCount = nodes.filter(isLane).length;
@@ -372,9 +403,10 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
 
       <div className="relative flex-1" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
         <div className="absolute top-4 left-5 z-10 flex items-center gap-2.5 rounded-[10px] border border-border bg-surface px-3.5 py-2 shadow-sm">
+          {topBarExtra}
           <span className="text-[13px] font-bold">{processName}</span>
           <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold text-accent-hover">
-            RASCUNHO · v{version}
+            {headerBadge ?? `RASCUNHO · v${version}`}
           </span>
           <span className="text-[10.5px] text-slate-400">
             {contentCount} elementos · {laneCount} raias · {edges.length} conexões
@@ -391,7 +423,7 @@ function Canvas({ processId, processName, initialVersion, initialNodes, initialE
             className="flex items-center gap-1 rounded-[8px] bg-accent px-3 py-1 text-[11px] font-bold text-white hover:bg-accent-hover"
             title="Salvar o processo"
           >
-            {saveState === "saving" ? "Salvando…" : "Salvar"}
+            {saveState === "saving" ? "Salvando…" : saveLabel ?? "Salvar"}
           </button>
           {saveState === "saved" && <span className="text-[10.5px] font-bold text-success-strong">Salvo ✓</span>}
           {saveState === "error" && <span className="text-[10.5px] font-bold text-danger-strong">Falhou</span>}
