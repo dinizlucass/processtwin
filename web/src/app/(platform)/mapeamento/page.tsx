@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ModelingCanvas, type FlowSavePayload } from "@/components/flow/ModelingCanvas";
+import { PreMappingEditor } from "@/components/flow/PreMappingEditor";
 import { VoiceInput } from "@/components/voice/VoiceInput";
 import type { PreMapping } from "@/lib/premapping";
 import { preMappingToEditorFlow } from "@/lib/draft-flow";
@@ -77,9 +78,10 @@ export default function MapeamentoPage() {
   const [canGenerate, setCanGenerate] = useState(false);
   const [loadingChat, setLoadingChat] = useState(false);
 
-  const [mode, setMode] = useState<"interview" | "review">("interview");
+  const [mode, setMode] = useState<"interview" | "review" | "edit">("interview");
   const [draft, setDraft] = useState<PreMapping | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [adjustText, setAdjustText] = useState("");
   const [draftKey, setDraftKey] = useState(0); // muda a cada geração → reseeda o editor
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -290,6 +292,31 @@ export default function MapeamentoPage() {
     }
   }
 
+  // Salva o rascunho da IA direto da tela de revisão (sem editor completo):
+  // cria o processo + fluxo (layout automático) e abre o modelador manual.
+  async function commit() {
+    if (!draft) return;
+    setSaving(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/mapping/commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft, conversationId: conversationId.current }),
+      });
+      if (!res.ok) {
+        const { error } = (await res.json()) as { error?: string };
+        throw new Error(error ?? "Falha ao salvar");
+      }
+      const { processId } = (await res.json()) as { processId: string };
+      router.push(`/modelagem/${processId}`);
+    } catch (err) {
+      console.error("[mapeamento] falha ao salvar", err);
+      setErrorMsg(err instanceof Error ? err.message : "Falha ao salvar no repositório.");
+      setSaving(false);
+    }
+  }
+
   // Salva a partir do editor completo do pré-mapeamento: cria o processo
   // (atributos, sistemas, recomendações) e grava o fluxo EDITADO por cima,
   // preservando posições/raias, e abre o modelador. Reaproveita os endpoints
@@ -380,17 +407,37 @@ export default function MapeamentoPage() {
     }
   };
 
-  if (mode === "review" && draft) {
+  // Edição manual completa (editor de fluxo com raias) — atrás do botão "Editar".
+  if (mode === "edit" && draft) {
     return (
-      <ReviewView
+      <EditView
         draft={draft}
         draftKey={draftKey}
         generating={generating}
         adjustText={adjustText}
         onAdjustChange={setAdjustText}
         onAdjust={() => adjustText.trim() && generate(adjustText.trim())}
-        onBack={() => setMode("interview")}
+        onBack={() => setMode("review")}
         onSaveFlow={commitFromEditor}
+        errorMsg={errorMsg}
+      />
+    );
+  }
+
+  // Revisão do pré-mapeamento (sutil): atributos, oportunidades e "pedir ajuste".
+  if (mode === "review" && draft) {
+    return (
+      <ReviewView
+        draft={draft}
+        onDraftChange={setDraft}
+        generating={generating}
+        saving={saving}
+        adjustText={adjustText}
+        onAdjustChange={setAdjustText}
+        onAdjust={() => adjustText.trim() && generate(adjustText.trim())}
+        onBackToInterview={() => setMode("interview")}
+        onEdit={() => setMode("edit")}
+        onSave={commit}
         errorMsg={errorMsg}
       />
     );
@@ -845,7 +892,7 @@ export default function MapeamentoPage() {
 
 const criticalityLabel: Record<string, string> = { alta: "Alta", media: "Média", baixa: "Baixa" };
 
-function ReviewView({
+function EditView({
   draft,
   draftKey,
   generating,
@@ -900,7 +947,7 @@ function ReviewView({
               onClick={onBack}
               className="rounded-[8px] border border-border px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:bg-page"
             >
-              ← Entrevista
+              ← Revisão
             </button>
             <button
               onClick={() => setShowAI((v) => !v)}
@@ -988,6 +1035,183 @@ function ReviewView({
           {errorMsg && <div className="mt-2 text-[11.5px] font-semibold text-danger-strong">{errorMsg}</div>}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------- Review mode (sutil): resumo do pré-mapeamento + pedir ajuste ----------
+
+function ReviewView({
+  draft,
+  onDraftChange,
+  generating,
+  saving,
+  adjustText,
+  onAdjustChange,
+  onAdjust,
+  onBackToInterview,
+  onEdit,
+  onSave,
+  errorMsg,
+}: {
+  draft: PreMapping;
+  onDraftChange: (pm: PreMapping) => void;
+  generating: boolean;
+  saving: boolean;
+  adjustText: string;
+  onAdjustChange: (v: string) => void;
+  onAdjust: () => void;
+  onBackToInterview: () => void;
+  onEdit: () => void;
+  onSave: () => void;
+  errorMsg: string | null;
+}) {
+  const attrs: { label: string; value?: string }[] = [
+    { label: "Dono", value: draft.process.owner },
+    { label: "Área", value: draft.process.department },
+    { label: "Criticidade", value: draft.process.criticality ? criticalityLabel[draft.process.criticality] : undefined },
+    { label: "Gatilho", value: draft.process.trigger },
+    { label: "Saídas", value: draft.process.outputs },
+    { label: "Frequência", value: draft.process.frequency },
+    { label: "SLA", value: draft.process.sla },
+    { label: "Uso de IA", value: draft.process.usesAI ? draft.process.aiDetail || "Sim" : undefined },
+    { label: "ESG", value: draft.process.esgTags?.length ? draft.process.esgTags.join(" · ") : undefined },
+  ].filter((a) => a.value);
+
+  return (
+    <div className="grid h-full grid-cols-[1.35fr_1fr] gap-5 px-8 py-6">
+      {/* PREVIEW DO FLUXO */}
+      <div className="flex min-h-0 flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="m-0 text-[18px] font-bold tracking-tight">{draft.process.name}</h1>
+              <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold text-accent-hover">
+                PRÉ-MAPEAMENTO IA
+              </span>
+            </div>
+            {draft.process.objective && (
+              <p className="mt-0.5 max-w-[60ch] text-[12px] text-muted">{draft.process.objective}</p>
+            )}
+          </div>
+          <button onClick={onBackToInterview} className="rounded-[9px] border border-border px-3 py-2 text-[12px] font-semibold text-muted hover:bg-page">
+            ← Voltar à entrevista
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-slate-50/60 shadow-sm">
+          <PreMappingEditor preMapping={draft} onChange={onDraftChange} />
+        </div>
+        <p className="text-[11.5px] text-slate-500">
+          Rascunho da IA. Ajuste rápido aqui, peça um ajuste à IA ao lado, ou use{" "}
+          <button onClick={onEdit} className="font-semibold text-accent hover:underline">Editar mapeamento</button>{" "}
+          para o editor completo com raias.
+        </p>
+      </div>
+
+      {/* PAINEL DE VALIDAÇÃO */}
+      <div className="flex min-h-0 flex-col gap-4 overflow-auto">
+        <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
+          <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Atributos</div>
+          <div className="mt-3 flex flex-col gap-0.5">
+            {attrs.length === 0 && <div className="text-[12px] text-slate-400">Nenhum atributo extraído ainda.</div>}
+            {attrs.map((a) => (
+              <div key={a.label} className="flex items-start justify-between gap-4 border-b border-border-soft py-2 last:border-b-0">
+                <span className="flex-none text-[12px] font-semibold text-muted">{a.label}</span>
+                <span className="text-right text-[12.5px] font-semibold text-ink">{a.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {draft.systems.length > 0 && (
+          <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
+            <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Sistemas</div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {draft.systems.map((s) => (
+                <span
+                  key={s.name}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                    s.isPrimary ? "bg-accent-soft text-accent" : "bg-page text-slate-500"
+                  }`}
+                >
+                  {s.name}
+                  {s.isPrimary ? " · principal" : ""}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {draft.recommendations.length > 0 && (
+          <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
+            <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Oportunidades e melhorias</div>
+            <div className="mt-3 flex flex-col gap-2.5">
+              {draft.recommendations.map((r, i) => (
+                <div key={i} className="flex gap-2.5">
+                  {r.priority && (
+                    <span
+                      className={`mt-0.5 flex-none rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                        r.priority === "P1"
+                          ? "bg-success-soft text-success-strong"
+                          : r.priority === "P2"
+                            ? "bg-warning-soft text-warning-text"
+                            : "bg-page text-slate-500"
+                      }`}
+                    >
+                      {r.priority}
+                    </span>
+                  )}
+                  <div>
+                    <div className="text-[12.5px] font-semibold text-slate-800">{r.title}</div>
+                    {r.detail && <div className="text-[11.5px] text-muted">{r.detail}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
+          <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Pedir ajuste à IA</div>
+          <textarea
+            value={adjustText}
+            onChange={(e) => onAdjustChange(e.target.value)}
+            placeholder="Ex.: adiciona uma etapa de conferência antes da aprovação; o executor da triagem é o time de RH…"
+            rows={3}
+            disabled={generating}
+            className="mt-2.5 w-full resize-none rounded-[10px] border border-border bg-page px-3 py-2.5 text-[12.5px] outline-none focus:border-indigo-400 disabled:opacity-60"
+          />
+          <button
+            onClick={onAdjust}
+            disabled={generating || !adjustText.trim()}
+            className="mt-2 w-full rounded-[10px] border border-accent-soft-border bg-accent-soft px-4 py-2 text-[12.5px] font-bold text-accent-hover hover:bg-indigo-100 disabled:opacity-40"
+          >
+            {generating ? "Regerando…" : "Aplicar ajuste"}
+          </button>
+        </div>
+
+        {errorMsg && <div className="text-[12px] font-semibold text-danger-strong">{errorMsg}</div>}
+
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onEdit}
+            disabled={saving || generating}
+            className="flex items-center justify-center gap-2 rounded-[10px] border border-accent-soft-border bg-accent-soft px-4 py-2.5 text-[12.5px] font-bold text-accent-hover hover:bg-indigo-100 disabled:opacity-50"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+            Editar mapeamento (raias e posições)
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving || generating}
+            className="rounded-[10px] bg-success-strong px-4 py-3 text-[13px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {saving ? "Salvando…" : "Salvar no repositório e abrir no modelador"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
