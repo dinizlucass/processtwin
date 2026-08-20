@@ -6,9 +6,7 @@ import {
   coverageFromFacts,
   coverageReady,
   normalizeCoverage,
-  normalizeMetricsFields,
   type ExtractedFacts,
-  type InterviewForm,
 } from "@/lib/phases";
 
 interface ChatMessage {
@@ -73,23 +71,17 @@ export async function POST(req: Request) {
         sugestoes?: unknown;
         pronto_para_gerar?: boolean;
         cobertura?: unknown;
-        formulario?: { tipo?: string; campos?: unknown };
       };
       const coverage = normalizeCoverage(parsed.cobertura);
       const suggestions = Array.isArray(parsed.sugestoes)
         ? parsed.sugestoes.filter((s): s is string => typeof s === "string" && s.trim().length > 0).slice(0, 3)
         : [];
-      const form: InterviewForm | null =
-        parsed.formulario?.tipo === "metricas"
-          ? { tipo: "metricas", campos: normalizeMetricsFields(parsed.formulario.campos) }
-          : null;
       return Response.json({
         reply: parsed.mensagem,
         suggestions,
         phase: parsed.fase_atual ?? Math.min(userTurns + 1, 7),
         readyToGenerate: Boolean(parsed.pronto_para_gerar) || coverageReady(coverage),
         coverage,
-        form,
         source: "openai" as const,
       });
     }

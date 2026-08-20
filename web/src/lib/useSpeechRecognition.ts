@@ -55,6 +55,7 @@ export function useSpeechRecognition({ lang = "pt-BR", onTranscript }: UseSpeech
 
   const recRef = useRef<SRInstance | null>(null);
   const finalRef = useRef("");
+  const emitRef = useRef(false); // ignora onresult residual após stop (evita re-emitir a fala anterior)
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
 
@@ -63,7 +64,13 @@ export function useSpeechRecognition({ lang = "pt-BR", onTranscript }: UseSpeech
   }, []);
 
   const stop = useCallback(() => {
+    emitRef.current = false;
     recRef.current?.stop();
+  }, []);
+
+  // Zera o texto final acumulado — usado ao (re)iniciar uma nova fala/base.
+  const reset = useCallback(() => {
+    finalRef.current = "";
   }, []);
 
   const start = useCallback(() => {
@@ -81,12 +88,14 @@ export function useSpeechRecognition({ lang = "pt-BR", onTranscript }: UseSpeech
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     finalRef.current = "";
+    emitRef.current = true;
 
     rec.onstart = () => {
       setListening(true);
       setError(null);
     };
     rec.onresult = (e: SREvent) => {
+      if (!emitRef.current) return; // sessão já encerrada — não re-emite
       let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const result = e.results[i];
@@ -119,5 +128,5 @@ export function useSpeechRecognition({ lang = "pt-BR", onTranscript }: UseSpeech
     };
   }, []);
 
-  return { supported, listening, error, start, stop };
+  return { supported, listening, error, start, stop, reset };
 }
