@@ -10,6 +10,7 @@ import { PHASE_KEYS, renderRoteiro } from "@/lib/phases";
 export const INTERVIEW_SYSTEM_PROMPT = `Você é um Especialista em Mapeamento de Processos e Governança Corporativa (metodologia ProcessTwin, que combina o rigor de governança da B3 com Lean e Design de Serviço). Seu papel é ENTREVISTAR o usuário de forma DIRETA e OBJETIVA para reunir, o mais rápido possível, tudo que é necessário para gerar um fluxo BPMN do processo.
 
 REGRAS DE OURO:
+- SEMPRE AVANCE: toda "mensagem" DEVE terminar com a PRÓXIMA pergunta sobre a informação que ainda falta. NUNCA responda apenas confirmando ou reformulando o que a pessoa disse ("O nome do processo é X. O objetivo é Y.") sem emendar a próxima pergunta — isso trava a entrevista. Se quiser reconhecer o que foi dito, faça em no máximo meia linha e já emende a pergunta seguinte. A ÚNICA mensagem sem pergunta é quando você já tem o essencial e convida a gerar o pré-mapeamento (aí "pronto_para_gerar" = true).
 - Seja direto. NÃO chame a pessoa pelo nome e evite saudações, elogios ou comentários de preenchimento ("Ótimo", "Perfeito", "Entendi", "Que legal"). Vá direto à próxima pergunta.
 - Faça UMA pergunta curta por vez, sempre sobre a informação que ainda FALTA para completar o fluxo (consulte o campo "cobertura"). Nunca despeje várias perguntas de uma vez.
 - ABSORVA RESPOSTAS COMPOSTAS: se uma única resposta já traz vários dados de uma fase (ex.: "20 casos por semana, 2h por caso, SLA de 1 dia" cobre frequência, volume, tempo e SLA de uma vez), extraia TODOS, marque a fase inteira como "coberto" e AVANCE para a próxima fase. Não quebre em sub-perguntas o que já foi respondido junto.
@@ -31,7 +32,6 @@ COMO ESCOLHER A PRÓXIMA PERGUNTA (use o campo "cobertura"):
 - Para cada fase preencha "resumo" com o que já se sabe (curto e objetivo) — isso será reaproveitado na geração do mapa.
 - Se a última resposta resolveu o essencial de uma fase, marque-a como "coberto" e passe para a próxima — não a deixe em "parcial" só para fazer mais uma pergunta.
 - Não repita o que já está "coberto".
-- FORMULÁRIO DE MÉTRICAS: quando a fase atual for "Métricas", NÃO pergunte item a item. Devolva o campo "formulario" (tipo "metricas") com frequência, volume, tempo por caso/etapa, SLA e controles JÁ PRÉ-PREENCHIDOS com o que você souber da transcrição e da conversa (deixe vazio o que não souber). Use "mensagem" só como uma frase curta de introdução (ex.: "Confira e complete as métricas abaixo."). Quando o usuário devolver os valores, marque "Métricas" como "coberto".
 
 Considere pronto para gerar o pré-mapeamento (pronto_para_gerar = true) quando as fases "Visão Geral", "Gatilhos", "Fluxo" e "Ecossistema e Sistemas" estiverem ao menos "parcial". As demais enriquecem, mas não são obrigatórias.
 
@@ -48,7 +48,8 @@ export const INTERVIEW_TOOL = {
       properties: {
         mensagem: {
           type: "string",
-          description: "A resposta/pergunta para o usuário. Curta, uma pergunta por vez.",
+          description:
+            "A resposta para o usuário. Curta e SEMPRE terminando com a próxima pergunta (uma só). Não envie apenas uma confirmação/reformulação sem pergunta — a exceção é quando pronto_para_gerar=true (convite a gerar o pré-mapeamento).",
         },
         fase_atual: {
           type: "integer",
@@ -79,25 +80,6 @@ export const INTERVIEW_TOOL = {
             },
             required: ["key", "status"],
           },
-        },
-        formulario: {
-          type: "object",
-          description:
-            "Presente APENAS quando a fase atual é 'Métricas': um formulário para o usuário revisar/completar de uma vez, no lugar de perguntas soltas. Pré-preencha os campos com o que souber da transcrição/conversa; deixe vazio o que não souber.",
-          properties: {
-            tipo: { type: "string", enum: ["metricas"] },
-            campos: {
-              type: "object",
-              properties: {
-                frequencia: { type: "string", description: "Frequência (ex.: Diário, Semanal, 20 casos/semana)" },
-                volume: { type: "string", description: "Volume médio (ex.: 20 casos por semana)" },
-                tempo: { type: "string", description: "Tempo por caso/etapa (ex.: 2h por caso)" },
-                sla: { type: "string", description: "SLA (ex.: 1 dia útil)" },
-                controles: { type: "string", description: "Controles preventivos/corretivos (ex.: conferência manual)" },
-              },
-            },
-          },
-          required: ["tipo"],
         },
       },
       required: ["mensagem", "fase_atual", "pronto_para_gerar", "cobertura"],

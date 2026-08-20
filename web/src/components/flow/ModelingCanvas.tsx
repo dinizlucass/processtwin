@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState, type ReactNode, type Ref } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -72,6 +72,11 @@ export interface FlowSavePayload {
   lanes: { id: string; label: string; posY: number; colorIndex: number; height: number; order: number }[];
 }
 
+// Handle imperativo para ler o fluxo atualmente na tela (usado pelo ajuste da IA).
+export interface ModelingCanvasHandle {
+  getCurrentFlow: () => FlowSavePayload;
+}
+
 interface ModelingCanvasProps {
   processId?: string;
   processName: string;
@@ -96,7 +101,8 @@ function Canvas({
   saveLabel,
   headerBadge,
   topBarExtra,
-}: ModelingCanvasProps) {
+  handleRef,
+}: ModelingCanvasProps & { handleRef?: Ref<ModelingCanvasHandle> }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(reflowLanes(initialNodes));
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -354,21 +360,27 @@ function Canvas({
     }
   }, [selectedNodeId, selectedEdgeId, selectedLaneId, deleteLane, setNodes, setEdges]);
 
+  const buildPayload = useCallback((): FlowSavePayload => {
+    const contentNodes = nodes.filter((n) => !isLane(n));
+    const laneNodes = nodes
+      .filter(isLane)
+      .sort((a, b) => ((a.data as LaneNodeData).order ?? 0) - ((b.data as LaneNodeData).order ?? 0));
+    return {
+      nodes: contentNodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data as FlowNodeData })),
+      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, label: e.label })),
+      lanes: laneNodes.map((l, i) => {
+        const d = l.data as LaneNodeData;
+        return { id: l.id, label: d.label, posY: l.position.y, colorIndex: d.tone, height: d.height, order: i };
+      }),
+    };
+  }, [nodes, edges]);
+
+  useImperativeHandle(handleRef, () => ({ getCurrentFlow: buildPayload }), [buildPayload]);
+
   const handleSave = useCallback(async () => {
     setSaveState("saving");
     try {
-      const contentNodes = nodes.filter((n) => !isLane(n));
-      const laneNodes = nodes
-        .filter(isLane)
-        .sort((a, b) => ((a.data as LaneNodeData).order ?? 0) - ((b.data as LaneNodeData).order ?? 0));
-      const payload: FlowSavePayload = {
-        nodes: contentNodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: n.data as FlowNodeData })),
-        edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, label: e.label })),
-        lanes: laneNodes.map((l, i) => {
-          const d = l.data as LaneNodeData;
-          return { id: l.id, label: d.label, posY: l.position.y, colorIndex: d.tone, height: d.height, order: i };
-        }),
-      };
+      const payload = buildPayload();
 
       // Modo rascunho: delega o salvar (criar processo + gravar fluxo) ao pai.
       if (onSave) {
@@ -392,7 +404,7 @@ function Canvas({
       console.error("[modelagem] falha ao salvar", err);
       setSaveState("error");
     }
-  }, [processId, nodes, edges, onSave]);
+  }, [processId, buildPayload, onSave]);
 
   const contentCount = nodes.filter((n) => !isLane(n)).length;
   const laneCount = nodes.filter(isLane).length;
@@ -537,10 +549,10 @@ function Canvas({
   );
 }
 
-export function ModelingCanvas(props: ModelingCanvasProps) {
+export const ModelingCanvas = forwardRef<ModelingCanvasHandle, ModelingCanvasProps>(function ModelingCanvas(props, ref) {
   return (
     <ReactFlowProvider>
-      <Canvas {...props} />
+      <Canvas {...props} handleRef={ref} />
     </ReactFlowProvider>
   );
-}
+});

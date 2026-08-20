@@ -1,6 +1,13 @@
 import type { Edge, Node } from "@xyflow/react";
-import { NODE_SIZE, type ActivityType, type FlowNodeData } from "@/lib/flow-types";
-import { computeLayout, deriveLaneNodes, routeEdges, type PreMapping } from "@/lib/premapping";
+import { NODE_SIZE, type ActivityType, type FlowNodeData, type NodeKind } from "@/lib/flow-types";
+import {
+  computeLayout,
+  deriveLaneNodes,
+  routeEdges,
+  type DraftEdge,
+  type DraftNode,
+  type PreMapping,
+} from "@/lib/premapping";
 import { reflowLanes } from "@/lib/lanes";
 
 /**
@@ -40,4 +47,37 @@ export function preMappingToEditorFlow(pm: PreMapping): { nodes: Node[]; edges: 
   const laneNodes = deriveLaneNodes(contentNodes);
   const nodes = reflowLanes([...laneNodes, ...contentNodes]);
   return { nodes, edges };
+}
+
+const KIND_SET = new Set<NodeKind>(["start", "end", "task", "decision"]);
+
+/**
+ * Converte o fluxo ATUALMENTE em tela (nós/arestas de conteúdo do editor) de
+ * volta para o formato PreMapping da IA, reaproveitando process/systems/
+ * recomendações do rascunho base. É isso que o ajuste da IA recebe como "estado
+ * atual" — assim ela mexe no que está na tela, inclusive edições manuais.
+ */
+export function editorFlowToPreMapping(
+  contentNodes: { id: string; data: FlowNodeData }[],
+  contentEdges: { source: string; target: string; label?: unknown }[],
+  base: PreMapping,
+): PreMapping {
+  const nodes: DraftNode[] = contentNodes
+    .filter((n) => KIND_SET.has(n.data?.kind as NodeKind))
+    .map((n) => ({
+      id: n.id,
+      kind: n.data.kind as NodeKind,
+      label: n.data.label ?? "Etapa",
+      actor: n.data.actor || undefined,
+      activityType: (n.data.activityType || undefined) as ActivityType | undefined,
+      systems: n.data.systems && n.data.systems.length ? n.data.systems : undefined,
+    }));
+
+  const edges: DraftEdge[] = contentEdges.map((e) => ({
+    source: e.source,
+    target: e.target,
+    label: typeof e.label === "string" && e.label.trim() ? e.label : undefined,
+  }));
+
+  return { process: base.process, systems: base.systems, recommendations: base.recommendations, nodes, edges };
 }
