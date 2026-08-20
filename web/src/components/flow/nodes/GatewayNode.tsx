@@ -23,7 +23,10 @@ export function GatewayNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
         {symbol}
       </div>
       {data.label && (
-        <div className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-bold text-warning-text">
+        <div
+          className="pointer-events-none absolute -bottom-6 left-1/2 w-[130px] -translate-x-1/2 line-clamp-2 text-center text-[10px] leading-tight font-bold text-warning-text"
+          title={data.label}
+        >
           {data.label}
         </div>
       )}

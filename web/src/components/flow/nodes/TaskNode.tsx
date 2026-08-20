@@ -11,9 +11,11 @@ export function TaskNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
   const isSub = data.kind === "subprocess";
   const systems = data.systems ?? [];
 
+  const hasBadges = Boolean(data.activityType) || Boolean(data.usesAI) || isSub;
+
   return (
     <div
-      className={`relative flex min-h-[66px] w-44 flex-col justify-center gap-0.5 rounded-xl bg-surface px-3 py-2 ${
+      className={`relative flex h-[72px] w-44 flex-col justify-center gap-1 overflow-hidden rounded-xl bg-surface px-3 py-1.5 ${
         selected
           ? "border-2 border-accent shadow-[0_0_0_4px_rgba(99,102,241,0.18)]"
           : isSub
@@ -23,28 +25,40 @@ export function TaskNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
     >
       <Handle type="target" position={Position.Left} className="!bg-slate-400" />
 
-      <div className="flex items-center gap-1.5">
-        {data.activityType && (
-          <span className={`rounded px-1 py-0.5 text-[8.5px] font-bold ${badgeTone[data.activityType]}`}>
-            {activityTypeLabel[data.activityType]}
-          </span>
-        )}
-        {data.usesAI && (
-          <span className="rounded bg-accent-soft px-1 py-0.5 text-[8.5px] font-bold text-accent">IA</span>
-        )}
-        {isSub && <span className="ml-auto text-[11px] font-bold text-slate-400">⊞</span>}
-      </div>
+      {hasBadges && (
+        <div className="flex items-center gap-1">
+          {data.activityType && (
+            <span className={`rounded px-1 py-0.5 text-[8.5px] font-bold ${badgeTone[data.activityType]}`}>
+              {activityTypeLabel[data.activityType]}
+            </span>
+          )}
+          {data.usesAI && (
+            <span className="rounded bg-accent-soft px-1 py-0.5 text-[8.5px] font-bold text-accent">IA</span>
+          )}
+          {isSub && <span className="ml-auto text-[11px] font-bold text-slate-400">⊞</span>}
+        </div>
+      )}
 
-      <span className="text-[12.5px] leading-tight font-bold text-slate-800">{data.label}</span>
-      {data.actor && <span className="text-[10px] font-semibold text-muted">{data.actor}</span>}
+      {/* rótulo: no máximo 2 linhas, sem quebrar no meio da palavra */}
+      <span
+        className="line-clamp-2 text-[12px] leading-[1.18] font-bold break-words text-slate-800"
+        title={data.label}
+      >
+        {data.label}
+      </span>
 
       {systems.length > 0 && (
-        <div className="mt-0.5 flex flex-wrap gap-0.5">
-          {systems.slice(0, 3).map((s) => (
-            <span key={s} className="rounded bg-page px-1 py-0.5 text-[8.5px] font-semibold text-slate-500">
+        <div className="flex flex-nowrap gap-0.5 overflow-hidden">
+          {systems.slice(0, 2).map((s) => (
+            <span key={s} className="truncate rounded bg-page px-1 py-0.5 text-[8.5px] font-semibold text-slate-500">
               {s}
             </span>
           ))}
+          {systems.length > 2 && (
+            <span className="flex-none rounded bg-page px-1 py-0.5 text-[8.5px] font-semibold text-slate-400">
+              +{systems.length - 2}
+            </span>
+          )}
         </div>
       )}
 

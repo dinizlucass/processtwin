@@ -402,31 +402,57 @@ function Canvas({
       <Palette />
 
       <div className="relative flex-1" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-        <div className="absolute top-4 left-5 z-10 flex items-center gap-2.5 rounded-[10px] border border-border bg-surface px-3.5 py-2 shadow-sm">
-          {topBarExtra}
-          <span className="text-[13px] font-bold">{processName}</span>
-          <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold text-accent-hover">
-            {headerBadge ?? `RASCUNHO · v${version}`}
-          </span>
-          <span className="text-[10.5px] text-slate-400">
-            {contentCount} elementos · {laneCount} raias · {edges.length} conexões
-          </span>
+        <div className="absolute top-3 left-4 z-10 flex items-center gap-2 rounded-xl border border-border bg-surface/95 px-2 py-1.5 shadow-md backdrop-blur-sm">
+          {topBarExtra && (
+            <>
+              <div className="flex items-center gap-1">{topBarExtra}</div>
+              <div className="h-6 w-px flex-none bg-border" />
+            </>
+          )}
+
+          <div className="flex min-w-0 flex-col px-1 leading-tight">
+            <div className="flex items-center gap-1.5">
+              <span className="max-w-[220px] truncate text-[13px] font-bold text-ink">{processName}</span>
+              <span className="flex-none rounded-full bg-accent-soft px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-accent-hover">
+                {headerBadge ?? `v${version}`}
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-400">
+              {contentCount} elementos · {laneCount} raias · {edges.length} conexões
+            </span>
+          </div>
+
+          <div className="h-6 w-px flex-none bg-border" />
+
           <button
             onClick={addLane}
-            className="ml-1 flex items-center gap-1 rounded-[8px] border border-accent-soft-border bg-accent-soft px-2.5 py-1 text-[11px] font-bold text-accent-hover hover:bg-indigo-100"
+            className="flex flex-none items-center gap-1 rounded-[8px] border border-border px-2.5 py-1.5 text-[11.5px] font-semibold text-slate-600 hover:border-accent-soft-border hover:bg-accent-soft hover:text-accent-hover"
             title="Adicionar uma raia (ator/responsável)"
           >
-            <span className="text-[13px] leading-none">+</span> Raia
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Raia
           </button>
           <button
             onClick={handleSave}
-            className="flex items-center gap-1 rounded-[8px] bg-accent px-3 py-1 text-[11px] font-bold text-white hover:bg-accent-hover"
+            className="flex flex-none items-center gap-1.5 rounded-[8px] bg-accent px-3 py-1.5 text-[11.5px] font-bold text-white shadow-sm hover:bg-accent-hover"
             title="Salvar o processo"
           >
-            {saveState === "saving" ? "Salvando…" : saveLabel ?? "Salvar"}
+            {saveState === "saving" ? (
+              "Salvando…"
+            ) : saveState === "saved" ? (
+              <>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+                Salvo
+              </>
+            ) : (
+              saveLabel ?? "Salvar"
+            )}
           </button>
-          {saveState === "saved" && <span className="text-[10.5px] font-bold text-success-strong">Salvo ✓</span>}
-          {saveState === "error" && <span className="text-[10.5px] font-bold text-danger-strong">Falhou</span>}
+          {saveState === "error" && <span className="flex-none text-[10.5px] font-bold text-danger-strong">Falhou</span>}
         </div>
 
         {(selectedNode || selectedEdge) && (
