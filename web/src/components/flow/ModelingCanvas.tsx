@@ -7,6 +7,7 @@ import {
   Connection,
   Controls,
   Edge,
+  MarkerType,
   MiniMap,
   Node,
   ReactFlow,
@@ -144,7 +145,17 @@ function Canvas({
 
   const onConnect = useCallback(
     (connection: Connection) =>
-      setEdges((eds) => addEdge({ ...connection, type: "smoothstep", style: { stroke: "#94a3b8" } }, eds)),
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...connection,
+            type: "smoothstep",
+            style: { stroke: "#64748b", strokeWidth: 2 },
+            markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: "#64748b" },
+          },
+          eds,
+        ),
+      ),
     [setEdges],
   );
 

@@ -160,10 +160,10 @@ function dedupeById(nodes: DraftNode[]): DraftNode[] {
 
 // ---------- Auto-layout em SWIMLANES (colunas = ordem, linhas = ator) ----------
 
-export const LANE_LABEL_W = 128; // largura da faixa de rótulo à esquerda de cada raia
-const SLOT_LEFT = LANE_LABEL_W + 44; // onde começa a 1ª coluna de nós
-const COL_GAP = 248; // distância entre centros de coluna
-const ROW_H = 108; // altura de cada sub-linha dentro de uma raia
+export const LANE_LABEL_W = 40; // largura da faixa de cabeçalho da raia (fina, padrão BPMN)
+const SLOT_LEFT = LANE_LABEL_W + 48; // onde começa a 1ª coluna de nós
+const COL_GAP = 264; // distância entre centros de coluna
+const ROW_H = 116; // altura de cada sub-linha dentro de uma raia
 const LANE_PAD = 22; // respiro vertical dentro da raia
 const RIGHT_PAD = 72; // respiro à direita da última coluna
 const TASK_W = NODE_SIZE.task.width;
@@ -393,9 +393,12 @@ export function deriveLaneNodes(nodes: Node<FlowNodeData>[]): Node<LaneNodeData>
 
 // ---------- Roteamento das arestas por geometria ----------
 
-const GREY = "#94a3b8";
+const GREY = "#64748b"; // slate-500 — linhas de sequência mais legíveis
 const GREEN = "#059669";
 const RED = "#dc2626";
+
+// rótulo Sim/Não em "pílula" branca para ler sobre qualquer fundo (nó/raia)
+const LABEL_BG = { fill: "#ffffff", fillOpacity: 0.92, stroke: "#e2e8f0" } as const;
 
 // quais tipos aceitam entrada/saída pela base (handle id "b")
 const BOTTOM_SOURCE = new Set<NodeKind>(["task", "subprocess", "data", "start", "intermediate"]);
@@ -425,7 +428,7 @@ export function routeEdges(nodes: Node[], edges: Edge[]): Edge[] {
     const base: Edge = {
       ...e,
       type: "smoothstep",
-      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: GREY },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: GREY },
     };
     if (!s || !t) return { ...base, style: strokeFor(label, false) };
 
@@ -451,24 +454,28 @@ export function routeEdges(nodes: Node[], edges: Edge[]): Edge[] {
     if (loop && BOTTOM_TARGET.has(b.kind)) targetHandle = "b"; // entra por baixo
     else targetHandle = undefined; // undefined = esquerda
 
-    const dashed = label === "Não" || loop;
+    const markerColor = label === "Não" ? RED : label === "Sim" ? GREEN : GREY;
     return {
       ...base,
       sourceHandle,
       targetHandle,
       label,
       labelStyle: labelTextFor(label),
+      labelShowBg: Boolean(label),
+      labelBgStyle: LABEL_BG,
+      labelBgPadding: [6, 3],
+      labelBgBorderRadius: 8,
       style: strokeFor(label, loop),
-      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: dashed ? (label === "Não" ? RED : GREY) : GREY },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: markerColor },
     };
   });
 }
 
 function strokeFor(label: string | undefined, loop: boolean): Edge["style"] {
-  if (label === "Não") return { stroke: RED, strokeWidth: 1.5, strokeDasharray: "6 4" };
-  if (loop) return { stroke: GREY, strokeWidth: 1.5, strokeDasharray: "6 4" };
-  if (label === "Sim") return { stroke: GREEN, strokeWidth: 1.75 };
-  return { stroke: GREY, strokeWidth: 1.5 };
+  if (label === "Não") return { stroke: RED, strokeWidth: 1.75, strokeDasharray: "6 4" };
+  if (loop) return { stroke: GREY, strokeWidth: 1.75, strokeDasharray: "6 4" };
+  if (label === "Sim") return { stroke: GREEN, strokeWidth: 2 };
+  return { stroke: GREY, strokeWidth: 2 };
 }
 
 function labelTextFor(label: string | undefined): Edge["labelStyle"] {

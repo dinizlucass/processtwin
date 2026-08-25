@@ -1,49 +1,42 @@
 import type { Node, NodeProps } from "@xyflow/react";
 import type { LaneNodeData } from "@/lib/premapping";
 
-// Paleta suave alternada para as faixas das raias
-const TONES = [
-  { band: "rgba(99,102,241,0.05)", label: "rgba(99,102,241,0.14)", text: "text-indigo-700", sel: "#6366f1" },
-  { band: "rgba(20,184,166,0.055)", label: "rgba(20,184,166,0.15)", text: "text-teal-700", sel: "#0d9488" },
-  { band: "rgba(245,158,11,0.055)", label: "rgba(245,158,11,0.16)", text: "text-amber-700", sel: "#d97706" },
-  { band: "rgba(236,72,153,0.05)", label: "rgba(236,72,153,0.14)", text: "text-pink-700", sel: "#db2777" },
-  { band: "rgba(100,116,139,0.07)", label: "rgba(100,116,139,0.16)", text: "text-slate-600", sel: "#475569" },
-];
+// Cor de acento por raia (barrinha fina no cabeçalho identifica o ator).
+const ACCENTS = ["#6366f1", "#0d9488", "#d97706", "#db2777", "#475569"];
 
+const GRID = "#c7d0dc"; // linhas da grade (moldura + divisórias) — visíveis, sóbrias
+const HEADER_BG = "#eef2f7"; // célula de cabeçalho, distinta do corpo branco
+
+// Raia no padrão BPMN 2.0: corpo branco dentro de uma GRADE com moldura e
+// divisórias sólidas, e uma célula de cabeçalho à esquerda com o rótulo do ator.
 export function LaneNode({ data, selected }: NodeProps<Node<LaneNodeData>>) {
-  const tone = TONES[((data.tone % TONES.length) + TONES.length) % TONES.length];
+  const accent = ACCENTS[((data.tone % ACCENTS.length) + ACCENTS.length) % ACCENTS.length];
+  const line = selected ? accent : GRID;
 
   return (
     <div className="pointer-events-none relative" style={{ width: data.width, height: data.height }}>
-      {/* fundo da raia (não captura clique → pan e nós continuam acessíveis) */}
+      {/* corpo branco com moldura/divisórias sólidas (formam a grade da pool) */}
       <div
-        className="absolute inset-0 border-y"
+        className="absolute inset-0"
         style={{
-          background: tone.band,
-          borderColor: selected ? tone.sel : "rgba(148,163,184,0.55)",
-          borderTopStyle: "dashed",
-          borderBottomStyle: "dashed",
-          boxShadow: selected ? `inset 0 0 0 2px ${tone.sel}55` : undefined,
+          background: "#ffffff",
+          border: `1.5px solid ${line}`,
+          boxShadow: selected ? `inset 0 0 0 1px ${accent}` : undefined,
         }}
       />
-      {/* faixa de rótulo à esquerda — ÚNICA parte clicável (seleciona a raia) */}
+      {/* célula de cabeçalho (fina) — ÚNICA parte clicável (seleciona a raia) */}
       <div
-        className="pointer-events-auto absolute inset-y-0 left-0 flex cursor-pointer flex-col items-center justify-center gap-1 border-r"
-        style={{
-          width: data.labelWidth,
-          background: tone.label,
-          borderColor: selected ? tone.sel : "rgba(148,163,184,0.55)",
-          boxShadow: selected ? `inset 0 0 0 2px ${tone.sel}` : undefined,
-        }}
+        className="pointer-events-auto absolute inset-y-0 left-0 flex cursor-pointer items-center justify-center"
+        style={{ width: data.labelWidth, background: HEADER_BG, borderRight: `1.5px solid ${line}` }}
         title="Clique para editar a raia"
       >
+        <div className="absolute inset-y-0 left-0 w-[3px]" style={{ background: accent }} />
         <span
-          className={`text-[11px] font-bold tracking-[.08em] uppercase ${tone.text}`}
-          style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", maxHeight: data.height - 40 }}
+          className="px-0.5 text-[10px] font-bold tracking-[.06em] text-slate-700 uppercase"
+          style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", maxHeight: data.height - 20, overflow: "hidden" }}
         >
           {data.label}
         </span>
-        <span className={`text-[8px] font-bold tracking-wide uppercase opacity-50 ${tone.text}`}>raia</span>
       </div>
     </div>
   );
