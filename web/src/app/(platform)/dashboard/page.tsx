@@ -5,14 +5,14 @@ import { toneBadge, toneBar, toneDot, toneText } from "@/lib/tone";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const { kpis, departmentMaturity, pendingAlerts } = await getDashboardData();
+  const { kpis, departmentMaturity, pendingAlerts, updatedLabel } = await getDashboardData();
 
   return (
     <div className="flex max-w-[1240px] flex-col gap-5 px-8 py-7">
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="m-0 text-[21px] font-bold tracking-tight">Visão Geral</h1>
-          <p className="mt-1 text-[13px] text-muted">Saúde do mapeamento de processos · Atualizado há 12 min</p>
+          <p className="mt-1 text-[13px] text-muted">Saúde do mapeamento de processos · Atualizado {updatedLabel}</p>
         </div>
         <Link
           href="/processos"

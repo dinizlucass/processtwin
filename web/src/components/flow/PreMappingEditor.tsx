@@ -7,6 +7,7 @@ import {
   Controls,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   useStoreApi,
   type Connection,
 } from "@xyflow/react";
@@ -39,6 +40,7 @@ function Inner({ preMapping, onChange }: { preMapping: PreMapping; onChange: (pm
   const [selNodeId, setSelNodeId] = useState<string | null>(null);
   const [selEdgeIdx, setSelEdgeIdx] = useState<number | null>(null);
   const storeApi = useStoreApi();
+  const { fitView } = useReactFlow();
 
   // Igual ao preview/ModelingCanvas: mede os nós manualmente (o ResizeObserver
   // automático não dispara de forma confiável) para as arestas aparecerem.
@@ -56,10 +58,12 @@ function Inner({ preMapping, onChange }: { preMapping: PreMapping; onChange: (pm
         if (id) updates.set(id, { id, nodeElement: el, force: true });
       });
       if (updates.size) state.updateNodeInternals(updates);
+      // reenquadra após medir para nenhum nó vazar da viewport (BPMN-01)
+      fitView({ padding: 0.16, duration: 200 });
     };
     const timers = [30, 120, 300, 600].map((d) => setTimeout(measure, d));
     return () => timers.forEach(clearTimeout);
-  }, [preMapping.nodes.length, preMapping.edges.length, storeApi]);
+  }, [preMapping.nodes.length, preMapping.edges.length, storeApi, fitView]);
 
   const selNode = preMapping.nodes.find((n) => n.id === selNodeId) ?? null;
   const selEdge = selEdgeIdx != null ? preMapping.edges[selEdgeIdx] ?? null : null;

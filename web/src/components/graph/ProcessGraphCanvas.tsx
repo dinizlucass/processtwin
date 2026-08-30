@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { FolderRow } from "@/lib/folders";
 import type { ProcessListItem } from "@/lib/queries/processes";
+import type { Handoff } from "@/lib/handoffs";
 import { buildProcessGraph, type BuildOptions, type GraphLink, type GraphNode } from "@/lib/process-graph";
 import { toneBadge } from "@/lib/tone";
 import type { Tone } from "@/lib/mock-data";
@@ -20,11 +22,16 @@ const criticalityTone: Record<string, Tone> = { alta: "danger", media: "warning"
 const criticalityLabel: Record<string, string> = { alta: "Alta", media: "Média", baixa: "Baixa" };
 const TYPE_LABEL: Record<string, string> = { process: "Processo", folder: "Pasta", department: "Departamento", system: "Sistema" };
 
+const HANDOFF_COLOR = "#7c3aed"; // violeta — distinto das arestas de hierarquia
+
 function endId(v: unknown): string {
   return typeof v === "object" && v !== null ? String((v as { id: string }).id) : String(v);
 }
 function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+function norm(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
 export function ProcessGraphCanvas({
@@ -32,12 +39,15 @@ export function ProcessGraphCanvas({
   folders,
   foldersEnabled,
   systemsByProcess,
+  handoffs,
 }: {
   processes: ProcessListItem[];
   folders: FolderRow[];
   foldersEnabled: boolean;
   systemsByProcess: Record<string, string[]>;
+  handoffs: Handoff[];
 }) {
+  const router = useRouter();
   // Lib client-only, carregada no browser (dá ref real p/ zoom/centralizar).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [ForceGraph, setForceGraph] = useState<any>(null);
@@ -48,12 +58,16 @@ export function ProcessGraphCanvas({
   const [showFolders, setShowFolders] = useState(foldersEnabled);
   const [showDepartments, setShowDepartments] = useState(true);
   const [showSystems, setShowSystems] = useState(false);
+  const [showHandoffs, setShowHandoffs] = useState(handoffs.length > 0);
   const [colorBy, setColorBy] = useState<"folder" | "criticality">("folder");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const hasSystems = useMemo(() => Object.values(systemsByProcess).some((a) => a.length), [systemsByProcess]);
+  const processName = useMemo(() => new Map(processes.map((p) => [p.id, p.name])), [processes]);
 
   useEffect(() => {
     let alive = true;
@@ -74,14 +88,20 @@ export function ProcessGraphCanvas({
     return () => ro.disconnect();
   }, [ForceGraph]);
 
+  // busca reativa (CON-04): filtra/realça enquanto digita, sem esperar Enter
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query.trim()), 180);
+    return () => clearTimeout(t);
+  }, [query]);
+
   const options: BuildOptions = useMemo(
-    () => ({ showFolders, showDepartments, showSystems, colorBy }),
-    [showFolders, showDepartments, showSystems, colorBy],
+    () => ({ showFolders, showDepartments, showSystems, showHandoffs, colorBy }),
+    [showFolders, showDepartments, showSystems, showHandoffs, colorBy],
   );
 
   const graphData = useMemo(
-    () => buildProcessGraph(processes, folders, systemsByProcess, options),
-    [processes, folders, systemsByProcess, options],
+    () => buildProcessGraph(processes, folders, systemsByProcess, options, handoffs),
+    [processes, folders, systemsByProcess, options, handoffs],
   );
 
   const adjacency = useMemo(() => {
@@ -96,12 +116,30 @@ export function ProcessGraphCanvas({
     return m;
   }, [graphData]);
 
-  const highlightNodes = useMemo(() => {
-    if (!hoverId) return null;
-    const set = new Set<string>([hoverId]);
-    adjacency.get(hoverId)?.forEach((n) => set.add(n));
+  // nós que casam com a busca (realce reativo)
+  const searchMatches = useMemo(() => {
+    const q = norm(debouncedQuery);
+    if (!q) return null;
+    const set = new Set<string>();
+    for (const n of graphData.nodes) if (norm(n.name).includes(q)) set.add(n.id);
     return set;
-  }, [hoverId, adjacency]);
+  }, [debouncedQuery, graphData]);
+
+  // foco por hover OU seleção → realça o subgrafo conectado
+  const activeId = hoverId ?? selected?.id ?? null;
+  const highlightNodes = useMemo(() => {
+    if (searchMatches) return searchMatches;
+    if (!activeId) return null;
+    const set = new Set<string>([activeId]);
+    adjacency.get(activeId)?.forEach((n) => set.add(n));
+    return set;
+  }, [searchMatches, activeId, adjacency]);
+
+  const linkActive = (l: GraphLink) => {
+    if (searchMatches) return searchMatches.has(endId(l.source)) && searchMatches.has(endId(l.target));
+    if (!activeId) return false;
+    return endId(l.source) === activeId || endId(l.target) === activeId;
+  };
 
   const fitKey = `${graphData.nodes.length}:${graphData.links.length}`;
   const fittedRef = useRef<string>("");
@@ -112,10 +150,11 @@ export function ProcessGraphCanvas({
   const modeProcessos = showFolders && showDepartments && !showSystems;
   const modeOcpm = showSystems && !showDepartments;
 
+  // ao digitar Enter, centraliza no 1º resultado (zoom); realce já é reativo
   function focusSearch() {
-    const q = query.trim().toLowerCase();
+    const q = norm(query.trim());
     if (!q) return;
-    const hit = graphData.nodes.find((n) => n.name.toLowerCase().includes(q)) as Positioned | undefined;
+    const hit = graphData.nodes.find((n) => norm(n.name).includes(q)) as Positioned | undefined;
     if (hit && typeof hit.x === "number" && typeof hit.y === "number") {
       fgRef.current?.centerAt(hit.x, hit.y, 600);
       fgRef.current?.zoom(4, 600);
@@ -126,11 +165,53 @@ export function ProcessGraphCanvas({
   const memberProcesses = (ids?: string[]) =>
     (ids ?? []).map((id) => processes.find((p) => p.id === id)).filter((p): p is ProcessListItem => Boolean(p));
 
+  // hand-offs do processo selecionado (saída/entrada)
+  const selHandoffs = useMemo(() => {
+    if (!selected || selected.type !== "process" || !selected.processId) return { out: [], in: [] as Handoff[] };
+    const pid = selected.processId;
+    return {
+      out: handoffs.filter((h) => h.source === pid),
+      in: handoffs.filter((h) => h.target === pid),
+    };
+  }, [selected, handoffs]);
+
+  async function confirmHandoff(h: Handoff) {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/relationships", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromProcess: h.source, toProcess: h.target, label: h.label ?? null }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        alert(j.error || "Não foi possível salvar o hand-off.");
+        return;
+      }
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeHandoff(h: Handoff) {
+    setBusy(true);
+    try {
+      const qs = h.relationshipId ? `id=${h.relationshipId}` : `from=${h.source}&to=${h.target}`;
+      await fetch(`/api/relationships?${qs}`, { method: "DELETE" });
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const empty = graphData.nodes.length === 0;
+
   return (
     <div className="relative flex h-full min-h-0">
       {/* ÁREA DO GRAFO */}
       <div ref={wrapRef} className="relative min-h-0 flex-1 overflow-hidden bg-page">
-        {ForceGraph && size.w > 0 && size.h > 0 ? (
+        {ForceGraph && size.w > 0 && size.h > 0 && !empty ? (
           <ForceGraph
             ref={fgRef}
             graphData={graphData}
@@ -175,14 +256,14 @@ export function ProcessGraphCanvas({
                 ctx.stroke();
               }
 
-              const showLabel = scale > 1.6 || (highlightNodes ? highlightNodes.has(n.id) : n.type !== "process" && r > 7);
+              const showLabel = scale > 1.4 || (highlightNodes ? highlightNodes.has(n.id) : n.type !== "process" && r > 7);
               if (showLabel) {
                 const fs = Math.max(11 / scale, 1.4);
                 ctx.font = `${n.type === "process" ? 600 : 700} ${fs}px Segoe UI, system-ui, sans-serif`;
                 ctx.textAlign = "center";
                 ctx.textBaseline = "top";
-                ctx.globalAlpha = dim ? 0.12 : 0.92;
-                ctx.fillStyle = "#334155";
+                ctx.globalAlpha = dim ? 0.1 : 0.95;
+                ctx.fillStyle = "#1e293b";
                 ctx.fillText(truncate(n.name, 26), n.x, n.y + r + 1.5 / scale);
               }
               ctx.globalAlpha = 1;
@@ -196,14 +277,23 @@ export function ProcessGraphCanvas({
               ctx.fill();
             }}
             linkColor={(l: GraphLink) => {
-              if (!hoverId) return "rgba(148,163,184,0.28)";
-              const on = endId(l.source) === hoverId || endId(l.target) === hoverId;
-              return on ? "rgba(71,85,105,0.85)" : "rgba(148,163,184,0.06)";
+              const handoff = l.kind === "handoff";
+              const on = linkActive(l);
+              if (highlightNodes && !on) return handoff ? "rgba(124,58,237,0.10)" : "rgba(148,163,184,0.07)";
+              if (handoff) return l.confirmed ? "rgba(124,58,237,0.95)" : "rgba(124,58,237,0.55)";
+              // arestas de hierarquia: contraste maior que antes (CON-04)
+              return on ? "rgba(51,65,85,0.9)" : "rgba(100,116,139,0.5)";
             }}
-            linkWidth={(l: GraphLink) => (hoverId && (endId(l.source) === hoverId || endId(l.target) === hoverId) ? 2 : 1)}
-            linkDirectionalParticles={(l: GraphLink) =>
-              hoverId && (endId(l.source) === hoverId || endId(l.target) === hoverId) ? 2 : 0
-            }
+            linkWidth={(l: GraphLink) => {
+              const on = linkActive(l);
+              if (l.kind === "handoff") return on ? 3 : l.confirmed ? 2.2 : 1.6;
+              return on ? 2.4 : 1.4;
+            }}
+            linkLineDash={(l: GraphLink) => (l.kind === "handoff" && !l.confirmed ? [4, 3] : null)}
+            linkDirectionalArrowLength={(l: GraphLink) => (l.kind === "handoff" ? 4 : 0)}
+            linkDirectionalArrowRelPos={0.98}
+            linkDirectionalArrowColor={() => HANDOFF_COLOR}
+            linkDirectionalParticles={(l: GraphLink) => (linkActive(l) ? 2 : 0)}
             onNodeHover={(n: GraphNode | null) => {
               setHoverId(n ? n.id : null);
               if (wrapRef.current) wrapRef.current.style.cursor = n ? "pointer" : "grab";
@@ -215,6 +305,8 @@ export function ProcessGraphCanvas({
             }}
             onBackgroundClick={() => setSelected(null)}
           />
+        ) : empty && ForceGraph ? (
+          <GraphEmptyState />
         ) : (
           <div className="flex h-full items-center justify-center">
             <div className="flex flex-col items-center gap-2 text-muted">
@@ -267,6 +359,13 @@ export function ProcessGraphCanvas({
               <Toggle label="Pastas" checked={showFolders} disabled={!foldersEnabled} onChange={setShowFolders} dot="#6366f1" />
               <Toggle label="Áreas" checked={showDepartments} onChange={setShowDepartments} dot="#6366f1" />
               <Toggle label="Sistemas" checked={showSystems} onChange={setShowSystems} dot="#0891b2" />
+              <Toggle
+                label={`Hand-offs${handoffs.length ? ` (${handoffs.length})` : ""}`}
+                checked={showHandoffs}
+                disabled={handoffs.length === 0}
+                onChange={setShowHandoffs}
+                dot={HANDOFF_COLOR}
+              />
             </div>
 
             <div className="h-6 w-px bg-border" />
@@ -292,17 +391,20 @@ export function ProcessGraphCanvas({
         </div>
 
         {/* LEGENDA */}
-        <div className="pointer-events-none absolute bottom-4 left-4 flex flex-col gap-1 rounded-[10px] border border-border bg-surface/90 px-3 py-2 text-[11px] shadow-sm backdrop-blur-sm">
-          <LegendItem color="#94a3b8" label="Processo" />
-          {showFolders && <LegendItem color="#6366f1" label="Pasta" ring />}
-          {showDepartments && <LegendItem color="#6366f1" label="Departamento" ring />}
-          {showSystems && <LegendItem color="#0891b2" label="Sistema" ring />}
-        </div>
+        {!empty && (
+          <div className="pointer-events-none absolute bottom-4 left-4 flex flex-col gap-1 rounded-[10px] border border-border bg-surface/90 px-3 py-2 text-[11px] shadow-sm backdrop-blur-sm">
+            <LegendItem color="#94a3b8" label="Processo" />
+            {showFolders && <LegendItem color="#6366f1" label="Pasta" ring />}
+            {showDepartments && <LegendItem color="#6366f1" label="Departamento" ring />}
+            {showSystems && <LegendItem color="#0891b2" label="Sistema" ring />}
+            {showHandoffs && <LegendItem color={HANDOFF_COLOR} label="Hand-off (— tracejado = sugerido)" line />}
+          </div>
+        )}
       </div>
 
       {/* PAINEL LATERAL */}
       {selected && (
-        <aside className="flex w-[300px] flex-none flex-col gap-3 overflow-auto border-l border-border bg-surface px-5 py-4">
+        <aside className="flex w-[320px] flex-none flex-col gap-3 overflow-auto border-l border-border bg-surface px-5 py-4">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[10px] font-bold tracking-[.08em] text-muted uppercase">{TYPE_LABEL[selected.type]}</div>
@@ -334,6 +436,25 @@ export function ProcessGraphCanvas({
                   Dono: <b className="font-semibold text-ink">{selected.ownerName}</b>
                 </div>
               )}
+
+              {/* HAND-OFFS (CON-03) */}
+              {(selHandoffs.out.length > 0 || selHandoffs.in.length > 0) && (
+                <div className="mt-1 rounded-[10px] border border-border-soft bg-page/50 p-3">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[.05em] text-muted">
+                    <span className="h-2 w-4 rounded-full" style={{ background: HANDOFF_COLOR }} /> Hand-offs
+                  </div>
+                  {selHandoffs.out.map((h) => (
+                    <HandoffRow key={`o-${h.target}`} dir="out" name={processName.get(h.target) ?? "—"} h={h} busy={busy} onConfirm={confirmHandoff} onRemove={removeHandoff} />
+                  ))}
+                  {selHandoffs.in.map((h) => (
+                    <HandoffRow key={`i-${h.source}`} dir="in" name={processName.get(h.source) ?? "—"} h={h} busy={busy} onConfirm={confirmHandoff} onRemove={removeHandoff} />
+                  ))}
+                  <p className="mt-1 text-[10.5px] leading-snug text-slate-400">
+                    Tracejado = sugerido pela IA (saída ≈ gatilho). Confirme para virar uma relação salva.
+                  </p>
+                </div>
+              )}
+
               <Link
                 href={selected.mapped ? `/modelagem/${selected.processId}` : `/mapeamento`}
                 className="mt-1 rounded-[10px] bg-accent px-4 py-2.5 text-center text-[12.5px] font-bold text-white hover:bg-accent-hover"
@@ -368,6 +489,75 @@ export function ProcessGraphCanvas({
   );
 }
 
+function HandoffRow({
+  dir,
+  name,
+  h,
+  busy,
+  onConfirm,
+  onRemove,
+}: {
+  dir: "out" | "in";
+  name: string;
+  h: Handoff;
+  busy: boolean;
+  onConfirm: (h: Handoff) => void;
+  onRemove: (h: Handoff) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 border-b border-border-soft py-1.5 last:border-b-0">
+      <span className="flex-none text-[11px] font-bold text-slate-400" title={dir === "out" ? "alimenta" : "é alimentado por"}>
+        {dir === "out" ? "→" : "←"}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[12px] font-semibold text-slate-700">{name}</div>
+        {h.label && <div className="truncate text-[10.5px] text-slate-400">via {h.label}</div>}
+      </div>
+      {h.confirmed ? (
+        <button
+          onClick={() => onRemove(h)}
+          disabled={busy}
+          className="flex-none rounded-[7px] px-2 py-0.5 text-[10.5px] font-bold text-slate-400 hover:bg-page hover:text-danger-strong disabled:opacity-40"
+          title="Remover hand-off"
+        >
+          Remover
+        </button>
+      ) : (
+        <button
+          onClick={() => onConfirm(h)}
+          disabled={busy}
+          className="flex-none rounded-[7px] bg-accent-soft px-2 py-0.5 text-[10.5px] font-bold text-accent-hover hover:bg-indigo-100 disabled:opacity-40"
+          title="Confirmar hand-off sugerido"
+        >
+          Confirmar
+        </button>
+      )}
+    </div>
+  );
+}
+
+function GraphEmptyState() {
+  return (
+    <div className="flex h-full items-center justify-center px-6">
+      <div className="max-w-sm rounded-2xl border border-dashed border-border bg-surface/80 px-6 py-10 text-center shadow-sm">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="5" cy="6" r="2.5" /><circle cx="18" cy="5" r="2.5" /><circle cx="12" cy="18" r="2.5" />
+            <path d="m7.1 7.2 3.6 8.5M15.7 6.9 13.1 15.7M7.3 5.6l8.2-.9" />
+          </svg>
+        </div>
+        <h2 className="m-0 text-[15px] font-bold text-ink">Grafo ainda vazio</h2>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
+          Mapeie processos com áreas e sistemas para vê-los se conectar aqui. As conexões nascem dos atributos que a IA já captura.
+        </p>
+        <Link href="/mapeamento" className="mt-4 inline-block rounded-[10px] bg-accent px-4 py-2.5 text-[12.5px] font-bold text-white hover:bg-accent-hover">
+          Mapear um processo →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function Toggle({
   label,
   checked,
@@ -395,13 +585,17 @@ function Toggle({
   );
 }
 
-function LegendItem({ color, label, ring }: { color: string; label: string; ring?: boolean }) {
+function LegendItem({ color, label, ring, line }: { color: string; label: string; ring?: boolean; line?: boolean }) {
   return (
     <div className="flex items-center gap-2 text-slate-600">
-      <span
-        className="h-2.5 w-2.5 rounded-full"
-        style={{ background: color, boxShadow: ring ? `0 0 0 1.5px #fff, 0 0 0 2.5px ${color}` : undefined }}
-      />
+      {line ? (
+        <span className="h-0.5 w-3.5 rounded-full" style={{ background: color }} />
+      ) : (
+        <span
+          className="h-2.5 w-2.5 rounded-full"
+          style={{ background: color, boxShadow: ring ? `0 0 0 1.5px #fff, 0 0 0 2.5px ${color}` : undefined }}
+        />
+      )}
       {label}
     </div>
   );

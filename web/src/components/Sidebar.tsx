@@ -30,7 +30,7 @@ const NAV_ITEMS = [
   {
     href: "/processos",
     matchPrefix: "/modelagem",
-    label: "Modelagem Manual",
+    label: "Repositório de Processos",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="8" height="8" rx="2" />

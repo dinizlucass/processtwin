@@ -7,6 +7,7 @@ import {
   Controls,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   useStoreApi,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -17,9 +18,11 @@ import { toReactFlow, type PreMapping } from "@/lib/premapping";
 function Inner({ preMapping }: { preMapping: PreMapping }) {
   const { nodes, edges } = toReactFlow(preMapping);
   const storeApi = useStoreApi();
+  const { fitView } = useReactFlow();
 
   // Ver ModelingCanvas: mede os nós manualmente (o ResizeObserver automático
-  // não dispara de forma confiável) para as arestas aparecerem.
+  // não dispara de forma confiável) para as arestas aparecerem. Depois de medir,
+  // reenquadra (fit-to-content) — senão o 1º/último nó vazam da viewport (BPMN-01).
   useEffect(() => {
     const measure = () => {
       const state = storeApi.getState() as unknown as {
@@ -34,6 +37,7 @@ function Inner({ preMapping }: { preMapping: PreMapping }) {
         if (id) updates.set(id, { id, nodeElement: el, force: true });
       });
       if (updates.size) state.updateNodeInternals(updates);
+      fitView({ padding: 0.16, duration: 200 });
     };
     const timers = [30, 120, 300, 600].map((d) => setTimeout(measure, d));
     return () => timers.forEach(clearTimeout);

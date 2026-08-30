@@ -122,6 +122,19 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
     return { total, mapped, published, high, pct: total ? Math.round((mapped / total) * 100) : 0 };
   }, [scoped]);
 
+  // Detecção de duplicatas (DAT-01): agrupa por nome normalizado no repositório
+  // inteiro (não só na pasta) — mesmo nome com códigos/donos diferentes.
+  const duplicateGroups = useMemo(() => {
+    const m = new Map<string, ProcessListItem[]>();
+    for (const p of processes) {
+      const k = normalize(p.name.trim());
+      (m.get(k) ?? m.set(k, []).get(k)!).push(p);
+    }
+    return [...m.values()].filter((g) => g.length > 1).sort((a, b) => b.length - a.length);
+  }, [processes]);
+  const dupKeys = useMemo(() => new Set(duplicateGroups.map((g) => normalize(g[0].name.trim()))), [duplicateGroups]);
+  const [dupDismissed, setDupDismissed] = useState(false);
+
   const activeFilters = (fDept ? 1 : 0) + (fStatus ? 1 : 0) + (fCrit ? 1 : 0) + (fMapped ? 1 : 0) + (query.trim() ? 1 : 0);
   const currentParentForNew = selectedNode ? selectedNode.id : null;
   const path = selectedNode ? folderPath(selectedNode, tree.byId) : [];
@@ -402,6 +415,41 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
           </div>
         </div>
 
+        {/* Aviso de duplicatas (DAT-01) */}
+        {duplicateGroups.length > 0 && !dupDismissed && (
+          <div className="mx-8 mt-4 rounded-[12px] border border-warning bg-warning-soft px-4 py-3">
+            <div className="flex items-start gap-2.5">
+              <span className="mt-0.5 flex-none text-warning-text"><AlertIcon /></span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[12.5px] font-bold text-warning-text">
+                  {duplicateGroups.length} {duplicateGroups.length === 1 ? "processo com nome duplicado" : "processos com nomes duplicados"}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {duplicateGroups.slice(0, 6).map((g) => (
+                    <button
+                      key={g[0].id}
+                      onClick={() => {
+                        setQuery(g[0].name.trim());
+                        setSelected("all");
+                      }}
+                      className="rounded-full border border-warning bg-surface px-2.5 py-0.5 text-[11px] font-semibold text-warning-text hover:bg-warning-soft"
+                      title="Filtrar por este nome"
+                    >
+                      {g[0].name} · {g.length}×
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] leading-snug text-warning-text/80">
+                  Revise se são o mesmo processo (mescle mantendo o mais completo) ou variantes distintas (renomeie para diferenciar).
+                </p>
+              </div>
+              <button onClick={() => setDupDismissed(true)} className="flex-none rounded-md px-1.5 text-[15px] leading-none text-warning-text/70 hover:text-warning-text">
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Barra de seleção em massa */}
         {pickedList.length > 0 && (
           <div className="sticky top-0 z-10 mx-8 mt-4 flex items-center gap-3 rounded-[12px] border border-accent-soft-border bg-accent-soft px-4 py-2.5 shadow-sm">
@@ -427,6 +475,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
               allPicked={allVisiblePicked}
               sortKey={sortKey}
               sortDir={sortDir}
+              dupKeys={dupKeys}
               onToggleSort={toggleSort}
               onTogglePick={togglePick}
               onTogglePickAll={togglePickAll}
@@ -452,6 +501,7 @@ function TableView({
   allPicked,
   sortKey,
   sortDir,
+  dupKeys,
   onToggleSort,
   onTogglePick,
   onTogglePickAll,
@@ -465,6 +515,7 @@ function TableView({
   allPicked: boolean;
   sortKey: SortKey;
   sortDir: SortDir;
+  dupKeys: Set<string>;
   onToggleSort: (k: SortKey) => void;
   onTogglePick: (id: string) => void;
   onTogglePickAll: () => void;
@@ -501,9 +552,16 @@ function TableView({
               {initials(p.ownerName ?? p.name)}
             </span>
             <div className="min-w-0">
-              <Link href={`/modelagem/${p.id}`} className="block truncate font-bold text-ink hover:text-accent">
-                {p.name}
-              </Link>
+              <div className="flex items-center gap-1.5">
+                <Link href={`/modelagem/${p.id}`} className="truncate font-bold text-ink hover:text-accent">
+                  {p.name}
+                </Link>
+                {dupKeys.has(normalize(p.name.trim())) && (
+                  <span className="flex-none rounded-full bg-warning-soft px-1.5 py-0.5 text-[9px] font-bold text-warning-text" title="Existe outro processo com este nome">
+                    duplicado
+                  </span>
+                )}
+              </div>
               <div className="truncate text-[11px] text-muted">
                 <span className="font-mono">{p.code}</span>
                 {p.ownerName ? ` · ${p.ownerName}` : ""}

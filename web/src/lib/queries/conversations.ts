@@ -46,13 +46,23 @@ function normalizeMessages(raw: ConversationMessage[] | null): ConversationMessa
 
 const cap = (s: string) => (s.length > 60 ? `${s.slice(0, 60)}…` : s);
 
+// aberturas conversacionais que NÃO são nome de processo
+const FILLER_START =
+  /^(sim|n[aã]o|ok|talvez|acho|isso|oi|ol[aá]|bom|boa|quero|preciso|vamos|gostaria|pode|comigo|ent[aã]o|aqui|esse|essa|este|esta|meu|minha|obrigad)/i;
+
 /** Uma resposta serve de título quando parece um NOME de processo, não uma
- * resposta solta do meio da entrevista (ex.: "Não", "20 casos por semana"). */
+ * resposta solta do meio da entrevista (ex.: "Não", "20 casos", "comigo"). */
 function looksLikeName(s: string): boolean {
   const t = s.trim();
-  if (t.length < 3 || t.length > 70) return false;
-  if (/^(sim|n[aã]o|ok|talvez|acho|isso)\b/i.test(t)) return false;
+  if (t.length < 4 || t.length > 70) return false;
   if (/^\d/.test(t)) return false; // começa com número (métrica, volume…)
+  if (FILLER_START.test(t)) return false;
+  const words = t.split(/\s+/);
+  // fragmento de uma palavra em minúscula (ex.: "comigo", "reembolso") é fraco:
+  // só aceita palavra única se vier capitalizada (parece um nome próprio/processo)
+  if (words.length === 1 && !/^[A-ZÀ-Ý]/.test(t)) return false;
+  // precisa ter ao menos uma letra e não ser só pontuação
+  if (!/[A-Za-zÀ-ý]/.test(t)) return false;
   return true;
 }
 

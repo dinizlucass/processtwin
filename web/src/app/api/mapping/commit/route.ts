@@ -1,11 +1,48 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { findOrCreateOwner } from "@/lib/queries/owner";
+import { findOrCreateFolderByName } from "@/lib/queries/folders";
 import { processCode } from "@/lib/slug";
 import { computeLayout, handleForLabel, laneNodeId, sanitizePreMapping, type PreMapping } from "@/lib/premapping";
+import { canonicalSystemName } from "@/lib/systems";
 
 interface Body {
   draft: PreMapping;
   conversationId?: string | null;
+}
+
+/** Canonicaliza + deduplica uma lista de sistemas (CON-01). */
+function canonList(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of names) {
+    const c = canonicalSystemName(n);
+    if (c && !seen.has(c)) {
+      seen.add(c);
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+/** Departamento do processo: usa o informado ou, se vazio, o executor (raia)
+ * mais frequente das etapas — assim o processo já nasce ligado a uma área no
+ * grafo (CON-02) em vez de flutuar isolado. */
+function resolveDepartment(draft: PreMapping): string | null {
+  if (draft.process.department?.trim()) return draft.process.department.trim();
+  const counts = new Map<string, number>();
+  for (const n of draft.nodes) {
+    const a = n.actor?.trim();
+    if (a) counts.set(a, (counts.get(a) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const [a, c] of counts) {
+    if (c > bestN) {
+      best = a;
+      bestN = c;
+    }
+  }
+  return best;
 }
 
 export async function POST(req: Request) {
@@ -16,14 +53,16 @@ export async function POST(req: Request) {
   // 1. owner
   const ownerId = await findOrCreateOwner(supabase, draft.process.owner, draft.process.ownerRole);
 
-  // 2. process
+  // 2. process — departamento inferido (CON-02) + pasta sugerida pela área (DAT-02)
+  const department = resolveDepartment(draft);
+  const folderId = department ? await findOrCreateFolderByName(department) : null;
   const code = processCode(draft.process.name);
   const { data: process, error: processError } = await supabase
     .from("process")
     .insert({
       name: draft.process.name,
       code,
-      department: draft.process.department ?? null,
+      department,
       criticality: draft.process.criticality || null,
       status: "rascunho",
       version: 1,
@@ -36,6 +75,7 @@ export async function POST(req: Request) {
       uses_ai: draft.process.usesAI ?? false,
       ai_detail: draft.process.aiDetail ?? null,
       esg_tags: draft.process.esgTags ?? [],
+      ...(folderId ? { folder_id: folderId } : {}),
     })
     .select("id")
     .single();
@@ -72,7 +112,7 @@ export async function POST(req: Request) {
     uses_ai: false,
     pos_x: positions.get(n.id)?.x ?? 0,
     pos_y: positions.get(n.id)?.y ?? 0,
-    attributes: n.systems && n.systems.length ? { systems: n.systems } : {},
+    attributes: n.systems && n.systems.length ? { systems: canonList(n.systems) } : {},
   }));
   const allRows = [...laneRows, ...nodeRows];
   if (allRows.length > 0) {
@@ -94,16 +134,17 @@ export async function POST(req: Request) {
     if (error) return Response.json({ error: error.message }, { status: 500 });
   }
 
-  // 5. system_dependency
+  // 5. system_dependency — nomes canonicalizados (CON-01), deduplicados
   if (draft.systems.length > 0) {
-    const { error } = await supabase.from("system_dependency").insert(
-      draft.systems.map((s) => ({
-        process_id: processId,
-        system_name: s.name,
-        is_primary: s.isPrimary ?? false,
-      })),
-    );
-    if (error) return Response.json({ error: error.message }, { status: 500 });
+    const seen = new Set<string>();
+    const rows = draft.systems
+      .map((s) => ({ name: canonicalSystemName(s.name), isPrimary: s.isPrimary ?? false }))
+      .filter((s) => s.name && (seen.has(s.name) ? false : (seen.add(s.name), true)))
+      .map((s) => ({ process_id: processId, system_name: s.name, is_primary: s.isPrimary }));
+    if (rows.length) {
+      const { error } = await supabase.from("system_dependency").insert(rows);
+      if (error) return Response.json({ error: error.message }, { status: 500 });
+    }
   }
 
   // 6. improvement_opportunity (recomendações da IA)

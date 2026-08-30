@@ -16,7 +16,19 @@ interface ProcessRow {
   criticality: "alta" | "media" | "baixa" | null;
   status: string;
   last_reviewed_at: string | null;
+  updated_at: string | null;
   owner: { name: string } | null;
+}
+
+function relativeWhen(iso: string | null): string {
+  if (!iso) return "agora";
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return "agora mesmo";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? "ontem" : `há ${d} dias`;
 }
 
 function daysSince(dateStr: string | null): number | null {
@@ -40,10 +52,16 @@ export async function getDashboardData() {
   const supabase = supabaseAdmin();
   const { data, error } = await supabase
     .from("process")
-    .select("id,name,department,criticality,status,last_reviewed_at,owner:owner_id(name)");
+    .select("id,name,department,criticality,status,last_reviewed_at,updated_at,owner:owner_id(name)");
 
   if (error) throw new Error(`Falha ao consultar processos: ${error.message}`);
   const processes = (data ?? []) as unknown as ProcessRow[];
+
+  const lastUpdatedIso = processes.reduce<string | null>((acc, p) => {
+    if (p.updated_at && (!acc || p.updated_at > acc)) return p.updated_at;
+    return acc;
+  }, null);
+  const updatedLabel = relativeWhen(lastUpdatedIso);
 
   const { data: mappedRows } = await supabase.from("flow_node").select("process_id");
   const mappedProcessIds = (mappedRows ?? []) as { process_id: string }[];
@@ -123,5 +141,5 @@ export async function getDashboardData() {
     }
   }
 
-  return { kpis, departmentMaturity, pendingAlerts: pendingAlerts.slice(0, 6) };
+  return { kpis, departmentMaturity, pendingAlerts: pendingAlerts.slice(0, 6), updatedLabel };
 }

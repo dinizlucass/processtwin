@@ -4,6 +4,7 @@
 
 import type { FolderRow } from "@/lib/folders";
 import type { ProcessListItem } from "@/lib/queries/processes";
+import type { Handoff } from "@/lib/handoffs";
 
 // Mesma paleta do RepositoryExplorer (duplicada de propósito no v1).
 export const FOLDER_COLORS = ["#6366f1", "#0d9488", "#d97706", "#db2777", "#2563eb", "#475569"];
@@ -38,7 +39,9 @@ export interface GraphNode {
 export interface GraphLink {
   source: string;
   target: string;
-  kind: "folder" | "department" | "system";
+  kind: "folder" | "department" | "system" | "handoff";
+  confirmed?: boolean; // handoff: true = relação salva; false = candidata inferida
+  label?: string;
 }
 
 export interface GraphData {
@@ -50,6 +53,7 @@ export interface BuildOptions {
   showFolders: boolean;
   showDepartments: boolean;
   showSystems: boolean;
+  showHandoffs: boolean;
   colorBy: "folder" | "criticality";
 }
 
@@ -86,6 +90,7 @@ export function buildProcessGraph(
   folders: FolderRow[],
   systemsByProcess: Record<string, string[]>,
   options: BuildOptions,
+  handoffs: Handoff[] = [],
 ): GraphData {
   const folderById = new Map(folders.map((f) => [f.id, f]));
   const folderColor = resolveFolderColors(folders);
@@ -166,6 +171,20 @@ export function buildProcessGraph(
   }
   for (const [slug, members] of sysMembers) {
     nodes.push({ id: `sys:${slug}`, type: "system", name: sysName.get(slug)!, val: 4, color: SYSTEM_COLOR, memberProcessIds: members });
+  }
+
+  // handoffs processo→processo (aresta direta entre nós de processo). São poucos
+  // (inferência conservadora) então não geram "hairball".
+  if (options.showHandoffs) {
+    const present = new Set(nodes.filter((n) => n.type === "process").map((n) => n.id));
+    for (const h of handoffs) {
+      const s = `proc:${h.source}`;
+      const t = `proc:${h.target}`;
+      if (!present.has(s) || !present.has(t)) continue;
+      links.push({ source: s, target: t, kind: "handoff", confirmed: h.confirmed, label: h.label });
+      bump(s);
+      bump(t);
+    }
   }
 
   // tamanho por grau (sqrt para hubs não explodirem)

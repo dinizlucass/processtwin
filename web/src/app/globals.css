@@ -6,7 +6,8 @@
   --color-sidebar: #0f172a;
   --color-sidebar-hover: #1e293b;
   --color-ink: #0f172a;
-  --color-muted: #64748b;
+  /* secundários um passo mais escuros p/ contraste WCAG AA (DS-01) */
+  --color-muted: #556074;
   --color-border: #e2e8f0;
   --color-border-soft: #f1f5f9;
 

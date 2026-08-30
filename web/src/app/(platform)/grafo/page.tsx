@@ -4,7 +4,7 @@ import { ProcessGraphCanvas } from "@/components/graph/ProcessGraphCanvas";
 export const dynamic = "force-dynamic";
 
 export default async function GrafoPage() {
-  const { processes, folders, foldersEnabled, systemsByProcess } = await getProcessGraphData();
+  const { processes, folders, foldersEnabled, systemsByProcess, handoffs } = await getProcessGraphData();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -13,6 +13,7 @@ export default async function GrafoPage() {
         folders={folders}
         foldersEnabled={foldersEnabled}
         systemsByProcess={systemsByProcess}
+        handoffs={handoffs}
       />
     </div>
   );
