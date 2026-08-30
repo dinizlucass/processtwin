@@ -40,6 +40,19 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: "/grafo",
+    matchPrefix: "/grafo",
+    label: "Grafo de Processos",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="5" cy="6" r="2.5" />
+        <circle cx="18" cy="5" r="2.5" />
+        <circle cx="12" cy="18" r="2.5" />
+        <path d="m7.1 7.2 3.6 8.5M15.7 6.9 13.1 15.7M7.3 5.6l8.2-.9" />
+      </svg>
+    ),
+  },
+  {
     href: "/conversas",
     matchPrefix: "/conversas",
     label: "Histórico de Conversas",
