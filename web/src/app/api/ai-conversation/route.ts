@@ -50,13 +50,15 @@ export async function POST(req: Request) {
     messages: body.messages ?? [],
     extracted_fields: body.extractedFields ?? {},
     status: body.status ?? "em_andamento",
-    process_id: body.processId ?? null,
+    ...(body.processId !== undefined ? { process_id: body.processId } : {}),
     updated_at: new Date().toISOString(),
   };
 
   if (body.id) {
-    const { error } = await supabase.from("ai_conversation").update(payload).eq("id", body.id);
+    // A delayed autosave must never reopen or detach a committed conversation.
+    const { data, error } = await supabase.from("ai_conversation").update(payload).eq("id", body.id).is("process_id", null).select("id");
     if (error) return Response.json({ error: error.message }, { status: 500 });
+    if (!data?.length) return Response.json({ error: "Conversa já concluída ou não encontrada." }, { status: 409 });
     return Response.json({ id: body.id });
   }
 

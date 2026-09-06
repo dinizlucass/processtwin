@@ -434,7 +434,6 @@ export function routeEdges(nodes: Node[], edges: Edge[]): Edge[] {
 
     const a = centerOf(s);
     const b = centerOf(t);
-    const forward = b.x > a.x + 8;
     const loop = b.x <= a.x + 8;
     const goingUp = b.y < a.y - 8;
 

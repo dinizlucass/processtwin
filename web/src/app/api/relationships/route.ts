@@ -10,8 +10,10 @@ interface PostBody {
 
 /** Confirma um hand-off inferido (ou cria um manual) processo→processo. */
 export async function POST(req: Request) {
-  const body = (await req.json()) as PostBody;
-  if (!body.fromProcess || !body.toProcess || body.fromProcess === body.toProcess) {
+  let body: PostBody;
+  try { body = await req.json(); } catch { return Response.json({ error: "JSON inválido." }, { status: 400 }); }
+  const uuid = (value: unknown) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  if (!body || !uuid(body.fromProcess) || !uuid(body.toProcess) || body.fromProcess === body.toProcess || (body.label != null && (typeof body.label !== "string" || body.label.length > 240))) {
     return Response.json({ error: "Origem e destino inválidos." }, { status: 400 });
   }
   const supabase = supabaseAdmin();
@@ -42,6 +44,7 @@ export async function DELETE(req: Request) {
   const from = searchParams.get("from");
   const to = searchParams.get("to");
   const id = searchParams.get("id");
+  if (!id && !(from && to)) return Response.json({ error: "Informe id ou (from,to)." }, { status: 400 });
   const supabase = supabaseAdmin();
 
   const q = supabase.from("process_relationship").delete();

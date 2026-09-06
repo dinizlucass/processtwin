@@ -371,10 +371,10 @@ function PanelShell({
   saveState: "idle" | "saving" | "saved" | "error";
 }) {
   return (
-    <div className="flex w-[300px] flex-none flex-col gap-3 overflow-auto border-l border-border bg-surface px-5 py-5">
+    <div className="flex h-full w-[300px] flex-none flex-col gap-3 overflow-auto border-l border-border bg-surface px-5 py-5">
       {children}
       <div className="sticky bottom-0 -mx-5 mt-1 flex items-center gap-2 border-t border-border-soft bg-surface px-5 pt-3">
-        <button onClick={onSave} className="flex-1 rounded-[10px] bg-accent py-2.5 text-[13px] font-semibold text-white hover:bg-accent-hover">
+        <button disabled={saveState === "saving"} onClick={onSave} className="flex-1 rounded-[10px] bg-accent py-2.5 text-[13px] font-semibold text-white hover:bg-accent-hover">
           {saveState === "saving" ? "Salvando…" : "Salvar alterações"}
         </button>
         {saveState === "saved" && <span className="text-[11px] font-semibold text-success-strong">Salvo ✓</span>}

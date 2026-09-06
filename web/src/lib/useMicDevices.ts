@@ -41,10 +41,11 @@ export function useMicDevices() {
   }, [refresh]);
 
   useEffect(() => {
-    refresh();
+    // Subscribe first; initial enumeration uses the same asynchronous callback.
+    const initialRefresh = setTimeout(refresh, 0);
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     md?.addEventListener?.("devicechange", refresh);
-    return () => md?.removeEventListener?.("devicechange", refresh);
+    return () => { clearTimeout(initialRefresh); md?.removeEventListener?.("devicechange", refresh); };
   }, [refresh]);
 
   return { devices, selectedId, setSelectedId, permission, requestPermission, refresh };

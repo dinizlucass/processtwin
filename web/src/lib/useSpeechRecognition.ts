@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 // Tipos mínimos da Web Speech API (não fazem parte do lib.dom padrão).
 interface SRAlternative {
@@ -49,7 +49,7 @@ export interface UseSpeechRecognitionOptions {
 }
 
 export function useSpeechRecognition({ lang = "pt-BR", onTranscript }: UseSpeechRecognitionOptions) {
-  const [supported, setSupported] = useState(false);
+  const supported = useSyncExternalStore(() => () => {}, () => !!getSpeechRecognition(), () => false);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,11 +57,8 @@ export function useSpeechRecognition({ lang = "pt-BR", onTranscript }: UseSpeech
   const finalRef = useRef("");
   const emitRef = useRef(false); // ignora onresult residual após stop (evita re-emitir a fala anterior)
   const onTranscriptRef = useRef(onTranscript);
-  onTranscriptRef.current = onTranscript;
+  useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
 
-  useEffect(() => {
-    setSupported(!!getSpeechRecognition());
-  }, []);
 
   const stop = useCallback(() => {
     emitRef.current = false;
@@ -91,26 +88,30 @@ export function useSpeechRecognition({ lang = "pt-BR", onTranscript }: UseSpeech
     emitRef.current = true;
 
     rec.onstart = () => {
+      if (recRef.current !== rec) return;
       setListening(true);
       setError(null);
     };
     rec.onresult = (e: SREvent) => {
-      if (!emitRef.current) return; // sessão já encerrada — não re-emite
+      if (recRef.current !== rec || !emitRef.current) return; // sessão já encerrada — não re-emite
       let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const result = e.results[i];
         const text = result[0]?.transcript ?? "";
-        if (result.isFinal) finalRef.current += text;
+        if (result.isFinal) finalRef.current += `${text} `;
         else interim += text;
       }
       const combined = (finalRef.current + interim).replace(/\s+/g, " ").trim();
       onTranscriptRef.current?.(combined);
     };
     rec.onerror = (e: SRErrorEvent) => {
+      if (recRef.current !== rec) return;
+      emitRef.current = false;
       setError(e.error);
       setListening(false);
     };
     rec.onend = () => {
+      if (recRef.current !== rec) return;
       setListening(false);
     };
 
@@ -118,7 +119,9 @@ export function useSpeechRecognition({ lang = "pt-BR", onTranscript }: UseSpeech
     try {
       rec.start();
     } catch {
-      // start() lança se chamado durante uma sessão ativa — ignora
+      emitRef.current = false;
+      setListening(false);
+      setError("start-failed");
     }
   }, [lang]);
 

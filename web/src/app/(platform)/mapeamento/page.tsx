@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ModelingCanvas, type FlowSavePayload, type ModelingCanvasHandle } from "@/components/flow/ModelingCanvas";
 import { PreMappingEditor } from "@/components/flow/PreMappingEditor";
@@ -76,6 +77,9 @@ export default function MapeamentoPage() {
 
   const chatRef = useRef<HTMLDivElement>(null);
   const conversationId = useRef<string | null>(null);
+  const commitInFlight = useRef(false);
+  const conversationSave = useRef<Promise<void>>(Promise.resolve());
+  const commitAttempt = useRef<{ content: string; requestId: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const msgInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -130,17 +134,18 @@ export default function MapeamentoPage() {
   useEffect(() => {
     const cid = new URLSearchParams(window.location.search).get("c");
     if (cid) {
-      void loadConversation(cid);
-      return;
+      const resume = setTimeout(() => void loadConversation(cid), 0);
+      return () => clearTimeout(resume);
     }
     fetch("/api/ai-conversation")
       .then((r) => (r.ok ? r.json() : { conversations: [] }))
       .then((d: { conversations: ResumableConv[] }) => setRecentConvs(d.conversations ?? []))
       .catch(() => setRecentConvs([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function startFresh() {
+    conversationSave.current = Promise.resolve();
+    commitAttempt.current = null;
     conversationId.current = null;
     setResumedFrom(null);
     setMessages([{ role: "ai", text: OPENING }]);
@@ -160,10 +165,12 @@ export default function MapeamentoPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: conversationId.current, messages: msgs, extractedFields: facts ?? {}, status, processId }),
       });
+      if (!res.ok) throw new Error("Não foi possível salvar a conversa.");
       const { id } = (await res.json()) as { id: string };
       conversationId.current = id;
     } catch (err) {
       console.error("[mapeamento] falha ao salvar conversa", err);
+      throw err;
     }
   }
 
@@ -199,7 +206,8 @@ export default function MapeamentoPage() {
       const mergedCoverage = mergeCoverage(coverage, data.coverage ?? null);
       setCoverage(mergedCoverage);
       setCanGenerate(data.readyToGenerate || coverageReady(mergedCoverage));
-      void persistConversation(afterAi, "em_andamento");
+      conversationSave.current = conversationSave.current.catch(() => {}).then(() => persistConversation(afterAi, "em_andamento"));
+      void conversationSave.current.catch(() => setErrorMsg("Falha ao salvar a conversa. Tente enviar novamente antes de concluir o mapeamento."));
     } catch (err) {
       console.error("[mapeamento] falha no chat", err);
       setMessages([...afterUser, { role: "ai", text: "Tive um problema para responder. Pode repetir?" }]);
@@ -226,7 +234,8 @@ export default function MapeamentoPage() {
       setDraftKey((k) => k + 1); // reseeda o editor com o novo rascunho
       setMode("review");
       setAdjustText("");
-      void persistConversation(messages, "premapeamento_gerado");
+      conversationSave.current = conversationSave.current.catch(() => {}).then(() => persistConversation(messages, "premapeamento_gerado"));
+      void conversationSave.current.catch(() => setErrorMsg("Falha ao salvar a conversa. Tente gerar novamente antes de concluir."));
     } catch (err) {
       console.error("[mapeamento] falha ao gerar pré-mapeamento", err);
       setErrorMsg(err instanceof Error ? err.message : "Falha ao gerar o pré-mapeamento.");
@@ -235,29 +244,38 @@ export default function MapeamentoPage() {
     }
   }
 
-  // Salva o rascunho da IA direto da tela de revisão (sem editor completo):
-  // cria o processo + fluxo (layout automático) e abre o modelador manual.
-  async function commit() {
-    if (!draft) return;
+  // The same request key and content are reused after a network failure.
+  async function persistMapping(flow?: FlowSavePayload) {
+    if (!draft) throw new Error("Não há pré-mapeamento para salvar.");
+    if (commitInFlight.current) throw new Error("O mapeamento já está sendo salvo.");
+    commitInFlight.current = true;
     setSaving(true);
     setErrorMsg(null);
     try {
+      await conversationSave.current;
+      const content = JSON.stringify({ draft, flow, conversationId: conversationId.current });
+      if (commitAttempt.current?.content !== content) commitAttempt.current = { content, requestId: crypto.randomUUID() };
       const res = await fetch("/api/mapping/commit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ draft, conversationId: conversationId.current }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...JSON.parse(content), requestId: commitAttempt.current.requestId }),
       });
       if (!res.ok) {
-        const { error } = (await res.json()) as { error?: string };
-        throw new Error(error ?? "Falha ao salvar");
+        const failure = await res.json();
+        throw new Error(failure.error || "Falha ao concluir o mapeamento.");
       }
-      const { processId } = (await res.json()) as { processId: string };
+      const { processId } = await res.json() as { processId: string };
       router.push(`/modelagem/${processId}`);
-    } catch (err) {
-      console.error("[mapeamento] falha ao salvar", err);
-      setErrorMsg(err instanceof Error ? err.message : "Falha ao salvar no repositório.");
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Falha ao salvar no repositório.");
+      throw error;
+    } finally {
+      commitInFlight.current = false;
       setSaving(false);
     }
+  }
+
+  async function commit() {
+    try { await persistMapping(); } catch { /* error is displayed by persistMapping */ }
   }
 
   // Ajuste da IA sobre o fluxo que está NA TELA: converte o fluxo atual do
@@ -290,38 +308,9 @@ export default function MapeamentoPage() {
     }
   }
 
-  // Salva a partir do editor completo do pré-mapeamento: cria o processo
-  // (atributos, sistemas, recomendações) e grava o fluxo EDITADO por cima,
-  // preservando posições/raias, e abre o modelador. Reaproveita os endpoints
-  // existentes — sem mudança de backend.
+  // The edited flow is part of the first transaction; no second save request.
   async function commitFromEditor(payload: FlowSavePayload) {
-    if (!draft) return;
-    setErrorMsg(null);
-    try {
-      const res = await fetch("/api/mapping/commit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ draft, conversationId: conversationId.current }),
-      });
-      if (!res.ok) {
-        const { error } = (await res.json()) as { error?: string };
-        throw new Error(error ?? "Falha ao criar o processo");
-      }
-      const { processId } = (await res.json()) as { processId: string };
-
-      const flowRes = await fetch("/api/flow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ processId, ...payload }),
-      });
-      if (!flowRes.ok) throw new Error(await flowRes.text());
-
-      router.push(`/modelagem/${processId}`);
-    } catch (err) {
-      console.error("[mapeamento] falha ao salvar", err);
-      setErrorMsg(err instanceof Error ? err.message : "Falha ao salvar no repositório.");
-      throw err; // deixa o botão do editor mostrar o estado de erro
-    }
+    await persistMapping(payload);
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -549,9 +538,9 @@ export default function MapeamentoPage() {
                           </span>
                         </button>
                       ))}
-                      <a href="/conversas" className="mt-0.5 text-center text-[11.5px] font-semibold text-slate-400 hover:text-accent">
+                      <Link href="/conversas" className="mt-0.5 text-center text-[11.5px] font-semibold text-slate-400 hover:text-accent">
                         Ver histórico completo →
-                      </a>
+                      </Link>
                     </div>
                   </div>
                 </div>

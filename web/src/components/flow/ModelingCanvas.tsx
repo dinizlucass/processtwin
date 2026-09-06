@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useState, type ReactNode, type Ref } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -20,15 +20,15 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
+import { arrangeFlow, validateFlow } from "@/lib/flow-analysis";
 import { Palette } from "@/components/flow/Palette";
 import { PropertiesPanel } from "@/components/flow/PropertiesPanel";
 import { nodeTypes } from "@/components/flow/node-types";
 import { NODE_SIZE, defaultDataForKind, type FlowNodeData, type NodeKind } from "@/lib/flow-types";
-import type { LaneNodeData } from "@/lib/premapping";
+import { routeEdges, type LaneNodeData } from "@/lib/premapping";
 import {
   DEFAULT_LANE_HEIGHT,
   LANE_COLOR_COUNT,
-  LANE_HEIGHT_STEP,
   MIN_LANE_HEIGHT,
   isLane,
   laneBandAt,
@@ -37,7 +37,7 @@ import {
   reflowLanes,
 } from "@/lib/lanes";
 
-let nextId = 1000;
+
 
 // tipos que "vivem" numa raia (recebem o responsável da raia ao serem soltos nela)
 const ASSIGNABLE: ReadonlySet<NodeKind> = new Set<NodeKind>(["task", "subprocess", "data"]);
@@ -111,7 +111,11 @@ function Canvas({
   const [selectedLaneId, setSelectedLaneId] = useState<string | null>(null);
   const [version, setVersion] = useState(initialVersion);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView, getViewport } = useReactFlow();
+  const savingRef = useRef(false);
+  const [saveError, setSaveError] = useState("");
+  const [issues, setIssues] = useState<string[] | null>(null);
+  const [layoutBefore, setLayoutBefore] = useState<Node[] | null>(null);
   const storeApi = useStoreApi();
 
   // Nesta stack (Next + React Flow v12) o ResizeObserver automático dos nós não
@@ -134,7 +138,6 @@ function Canvas({
     };
     const timers = [30, 120, 300, 600].map((d) => setTimeout(measure, d));
     return () => timers.forEach(clearTimeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes.length, storeApi]);
 
   const clearSelection = () => {
@@ -149,6 +152,7 @@ function Canvas({
         addEdge(
           {
             ...connection,
+            label: connection.sourceHandle === "yes" ? "Sim" : connection.sourceHandle === "no" ? "Não" : undefined,
             type: "smoothstep",
             style: { stroke: "#64748b", strokeWidth: 2 },
             markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: "#64748b" },
@@ -163,9 +167,9 @@ function Canvas({
     (event: React.DragEvent) => {
       event.preventDefault();
       const kind = event.dataTransfer.getData("application/x-processtwin-node") as NodeKind;
-      if (!kind) return;
+      if (!Object.hasOwn(NODE_SIZE, kind)) return;
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      const id = `n-${nextId++}`;
+      const id = `n-${crypto.randomUUID()}`;
       const size = NODE_SIZE[kind];
       const data = defaultDataForKind(kind);
       setNodes((nds) => {
@@ -340,7 +344,7 @@ function Canvas({
 
   const duplicateSelected = useCallback(() => {
     if (!selectedNode) return;
-    const id = `n-${nextId++}`;
+    const id = `n-${crypto.randomUUID()}`;
     setNodes((nds) => [
       ...nds,
       {
@@ -388,14 +392,28 @@ function Canvas({
 
   useImperativeHandle(handleRef, () => ({ getCurrentFlow: buildPayload }), [buildPayload]);
 
+  const fingerprint = JSON.stringify(buildPayload());
+  const [savedFingerprint, setSavedFingerprint] = useState(fingerprint);
+  const dirty = fingerprint !== savedFingerprint;
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
   const handleSave = useCallback(async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaveState("saving");
+    setSaveError("");
     try {
       const payload = buildPayload();
 
       // Modo rascunho: delega o salvar (criar processo + gravar fluxo) ao pai.
       if (onSave) {
         await onSave(payload);
+        setSavedFingerprint(JSON.stringify(payload));
         setSaveState("saved");
         setTimeout(() => setSaveState("idle"), 1800);
         return;
@@ -404,28 +422,47 @@ function Canvas({
       const res = await fetch("/api/flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ processId, ...payload }),
+        body: JSON.stringify({ processId, expectedVersion: version, ...payload }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) { const failure = await res.json(); throw new Error(failure.error || "Não foi possível salvar."); }
       const { version: newVersion } = (await res.json()) as { version: number };
       setVersion(newVersion);
+      setSavedFingerprint(JSON.stringify(payload));
       setSaveState("saved");
       setTimeout(() => setSaveState("idle"), 1800);
     } catch (err) {
       console.error("[modelagem] falha ao salvar", err);
+      setSaveError(err instanceof Error ? err.message : "Falha ao salvar.");
       setSaveState("error");
-    }
-  }, [processId, buildPayload, onSave]);
+    } finally { savingRef.current = false; }
+  }, [processId, buildPayload, onSave, version]);
 
   const contentCount = nodes.filter((n) => !isLane(n)).length;
   const laneCount = nodes.filter(isLane).length;
 
   return (
     <div className="flex h-full">
-      <Palette />
+      <Palette onAdd={(kind) => {
+        const view = getViewport();
+        const id = `n-${crypto.randomUUID()}`;
+        const size = NODE_SIZE[kind];
+        const position = selectedNode
+          ? { x: selectedNode.position.x + (NODE_SIZE[selectedNode.data.kind]?.width ?? 176) + 100, y: selectedNode.position.y }
+          : { x: (260 - view.x) / view.zoom, y: (220 - view.y) / view.zoom };
+        const data = defaultDataForKind(kind);
+        const band = laneBandAt(position.y + size.height / 2, nodes);
+        if (band && ASSIGNABLE.has(kind)) data.actor = (band.data as LaneNodeData).label;
+        setNodes((current) => reflowLanes([...current, { id, type: kind, position,
+          initialWidth: size.width, initialHeight: size.height, data }]));
+        if (selectedNode && ["start", "task", "subprocess", "intermediate"].includes(selectedNode.data.kind) &&
+            !["start", "annotation", "data"].includes(kind) && !edges.some((e) => e.source === selectedNode.id)) {
+          onConnect({ source: selectedNode.id, target: id, sourceHandle: null, targetHandle: null });
+        }
+        clearSelection(); setSelectedNodeId(id);
+      }} />
 
-      <div className="relative flex-1" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-        <div className="absolute top-3 left-4 z-10 flex items-center gap-2 rounded-xl border border-border bg-surface/95 px-2 py-1.5 shadow-md backdrop-blur-sm">
+      <div className="relative min-w-0 flex-1" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+        <div className="absolute top-3 left-4 right-4 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/95 px-2 py-1.5 shadow-md backdrop-blur-sm">
           {topBarExtra && (
             <>
               <div className="flex items-center gap-1">{topBarExtra}</div>
@@ -441,12 +478,19 @@ function Canvas({
               </span>
             </div>
             <span className="text-[10px] text-slate-400">
-              {contentCount} elementos · {laneCount} raias · {edges.length} conexões
+              {contentCount} elementos · {laneCount} raias · {edges.length} conexões {dirty ? "· Alterações não salvas" : ""}
             </span>
           </div>
 
           <div className="h-6 w-px flex-none bg-border" />
 
+          <button className="rounded-lg border border-border px-2 py-1.5 text-xs" onClick={() => { setLayoutBefore(nodes); const arranged = arrangeFlow(nodes, edges); setNodes(arranged); setEdges(routeEdges(arranged, edges)); requestAnimationFrame(() => fitView({ padding: 0.2 })); }}>Organizar</button>
+          {layoutBefore && <button className="rounded-lg border border-border px-2 py-1.5 text-xs" onClick={() => {
+            const positions = new Map(layoutBefore.map((n) => [n.id, n.position]));
+            setNodes((current) => reflowLanes(current.map((n) => positions.has(n.id) ? { ...n, position: positions.get(n.id)! } : n)));
+            setLayoutBefore(null);
+          }}>Desfazer organização</button>}
+          <button className="rounded-lg border border-border px-2 py-1.5 text-xs" onClick={() => setIssues(validateFlow(nodes, edges))}>Validar fluxo</button>
           <button
             onClick={addLane}
             className="flex flex-none items-center gap-1 rounded-[8px] border border-border px-2.5 py-1.5 text-[11.5px] font-semibold text-slate-600 hover:border-accent-soft-border hover:bg-accent-soft hover:text-accent-hover"
@@ -458,6 +502,7 @@ function Canvas({
             Raia
           </button>
           <button
+            disabled={saveState === "saving"}
             onClick={handleSave}
             className="flex flex-none items-center gap-1.5 rounded-[8px] bg-accent px-3 py-1.5 text-[11.5px] font-bold text-white shadow-sm hover:bg-accent-hover"
             title="Salvar o processo"
@@ -475,11 +520,11 @@ function Canvas({
               saveLabel ?? "Salvar"
             )}
           </button>
-          {saveState === "error" && <span className="flex-none text-[10.5px] font-bold text-danger-strong">Falhou</span>}
+          {saveState === "error" && <span className="flex-none text-[10.5px] font-bold text-danger-strong" role="alert">{saveError}</span>}
         </div>
 
         {(selectedNode || selectedEdge) && (
-          <div className="absolute top-4 right-5 z-10 flex items-center gap-1.5">
+          <div className="absolute bottom-44 right-5 z-10 flex items-center gap-1.5">
             {selectedNode && (
               <button
                 onClick={duplicateSelected}
@@ -497,12 +542,23 @@ function Canvas({
           </div>
         )}
 
+        {issues && <div role="status" className="absolute bottom-4 left-16 z-20 max-h-48 max-w-sm overflow-auto rounded-xl border border-border bg-surface p-4 text-xs shadow-lg">
+          <button aria-label="Fechar validação" className="float-right ml-4" onClick={() => setIssues(null)}>×</button>
+          <strong>{issues.length ? `${issues.length} ${issues.length === 1 ? "ponto" : "pontos"} para revisar` : "Fluxo sem problemas estruturais detectados"}</strong>
+          {issues.map((issue, i) => <p key={i} className="mt-2">{issue}</p>)}
+        </div>}
         <ReactFlow
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          snapToGrid
+          snapGrid={[20, 20]}
+          isValidConnection={(c) => c.source !== c.target &&
+            nodes.find((n) => n.id === c.source)?.data.kind !== "end" &&
+            nodes.find((n) => n.id === c.target)?.data.kind !== "start" &&
+            !edges.some((e) => e.source === c.source && e.target === c.target && e.sourceHandle === c.sourceHandle)}
           onNodeDragStop={onNodeDragStop}
           onNodeClick={(_, node) => {
             if (isLane(node)) {
@@ -538,6 +594,8 @@ function Canvas({
         </ReactFlow>
       </div>
 
+      {(selectedNode || selectedEdge || selectedLane) && <div className="relative h-full flex-none">
+      <button aria-label="Fechar propriedades" onClick={clearSelection} className="absolute right-3 top-2 z-10 rounded px-2 py-1 text-slate-500 hover:bg-page">×</button>
       <PropertiesPanel
         node={selectedNode}
         edge={selectedEdge}
@@ -555,7 +613,7 @@ function Canvas({
         onDuplicate={duplicateSelected}
         onSave={handleSave}
         saveState={saveState}
-      />
+      /></div>}
     </div>
   );
 }

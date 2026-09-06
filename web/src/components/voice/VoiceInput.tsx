@@ -22,7 +22,7 @@ export function VoiceInput({
   const baseTextRef = useRef("");
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const { devices, selectedId, setSelectedId, permission, requestPermission } = useMicDevices();
+  const { devices, permission, requestPermission } = useMicDevices();
 
   const { supported, listening, error, start, stop, reset } = useSpeechRecognition({
     lang: "pt-BR",
@@ -55,20 +55,6 @@ export function VoiceInput({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [pickerOpen]);
-
-  if (!supported) {
-    return (
-      <button
-        type="button"
-        disabled
-        title="Seu navegador não suporta transcrição de voz (use Chrome ou Edge)"
-        className="flex h-[42px] w-[42px] flex-none items-center justify-center rounded-[10px] border border-border bg-page text-slate-300"
-        aria-label="Transcrição de voz indisponível"
-      >
-        <MicIcon />
-      </button>
-    );
-  }
 
   async function startRec() {
     if (permission !== "granted") {
@@ -108,7 +94,8 @@ export function VoiceInput({
         ? "Não ouvi nada — tente de novo."
         : error === "audio-capture"
           ? "Microfone não encontrado."
-          : null;
+          : error === "network" ? "Falha na conexão do serviço de voz. Tente novamente ou digite."
+        : error ? "Não foi possível iniciar a voz. Tente novamente ou digite." : null;
 
   return (
     <div ref={wrapRef} className="relative flex flex-none items-center gap-1.5">
@@ -117,9 +104,9 @@ export function VoiceInput({
           <button
             type="button"
             onClick={startRec}
-            disabled={disabled}
-            aria-label="Falar para transcrever"
-            title="Falar para transcrever"
+            disabled={disabled || !supported}
+            aria-label={supported ? "Falar para transcrever" : "Transcrição de voz indisponível"}
+            title={supported ? "Falar para transcrever" : "Voz indisponível neste navegador; você pode digitar e enviar normalmente"}
             className="flex h-[42px] w-9 flex-none items-center justify-center rounded-l-[10px] border border-border bg-surface text-slate-500 transition-colors hover:border-indigo-300 hover:text-accent disabled:opacity-40"
           >
             <MicIcon />
@@ -132,8 +119,8 @@ export function VoiceInput({
               if (next && permission !== "granted") await requestPermission();
             }}
             disabled={disabled}
-            aria-label="Escolher microfone"
-            title="Escolher microfone"
+            aria-label="Ver microfones"
+            title="Ver microfones"
             className="-ml-1.5 flex h-[42px] w-6 flex-none items-center justify-center rounded-r-[10px] border border-l-0 border-border bg-surface text-slate-400 hover:text-accent disabled:opacity-40"
           >
             <ChevronIcon open={pickerOpen} />
@@ -208,28 +195,14 @@ export function VoiceInput({
             </button>
           )}
           <div className="flex max-h-56 flex-col gap-0.5 overflow-auto">
-            {devices.map((d, i) => {
-              const id = d.deviceId;
-              const isActive = selectedId ? selectedId === id : i === 0;
-              return (
-                <button
-                  key={id || i}
-                  onClick={() => {
-                    setSelectedId(id);
-                    setPickerOpen(false);
-                  }}
-                  className={`flex items-center gap-2 rounded-[8px] px-2 py-2 text-left text-[12px] ${
-                    isActive ? "bg-accent-soft font-semibold text-accent-hover" : "text-slate-600 hover:bg-page"
-                  }`}
-                >
-                  <span className={`h-2 w-2 flex-none rounded-full ${isActive ? "bg-accent" : "bg-slate-300"}`} />
-                  <span className="truncate">{d.label || `Microfone ${i + 1}`}</span>
-                </button>
-              );
-            })}
+            {devices.map((d, i) => (
+              <div key={d.deviceId || i} className="rounded-lg px-2 py-2 text-xs text-slate-600">
+                {d.label || `Microfone ${i + 1}`}
+              </div>
+            ))}
           </div>
           <div className="border-t border-border-soft px-2 pt-2 pb-1 text-[10px] leading-snug text-slate-400">
-            A transcrição ao vivo usa o microfone padrão do navegador.
+            A transcrição ao vivo usa o microfone padrão. Para trocar, selecione outro dispositivo nas configurações de som do navegador.
           </div>
         </div>
       )}

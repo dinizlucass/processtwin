@@ -11,11 +11,13 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const file = formData.get("file") as File;
 
-    if (!file) {
+    if (!(file instanceof File) || file.size === 0) {
       return NextResponse.json({ error: "Nenhum arquivo recebido." }, { status: 400 });
     }
 
+    if (file.size > 2 * 1024 * 1024) return NextResponse.json({ error: "A transcrição deve ter no máximo 2 MB." }, { status: 413 });
     const text = await file.text();
+    if (!text.trim()) return NextResponse.json({ error: "A transcrição está vazia." }, { status: 400 });
 
     const systemPrompt = `Você é um agente especialista em Task Mining e Inteligência de Processos.
 Sua missão é analisar a transcrição bruta de uma reunião e extrair as informações necessárias para mapear um processo.
@@ -33,7 +35,7 @@ REGRAS ESTRITAS:
 - Não adicione textos fora do JSON.`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o", // Lembre-se de mudar para "gpt-3.5-turbo" se necessário
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
@@ -42,8 +44,6 @@ REGRAS ESTRITAS:
     });
 
     const resultString = response.choices[0].message.content || "{}";
-    // TEMPORÁRIO: confirmar a forma crua que o modelo devolve (remover depois).
-    console.log("[extract-transcript] resposta crua do modelo:", resultString);
     const parsed = JSON.parse(resultString) as {
       facts?: unknown;
       fase_inicial?: number;

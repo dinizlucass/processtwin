@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { usePanelPreference } from "@/lib/usePanelPreference";
 import { NODE_META, PALETTE_GROUPS, type NodeKind } from "@/lib/flow-types";
 
 function Swatch({ kind }: { kind: NodeKind }) {
@@ -38,19 +38,11 @@ function Swatch({ kind }: { kind: NodeKind }) {
   }
 }
 
-export function Palette() {
-  const [collapsed, setCollapsed] = useState(false);
+export function Palette({ onAdd }: { onAdd: (kind: NodeKind) => void }) {
+  const [preference, setCollapsed] = usePanelPreference("pt-palette-collapsed");
+  const collapsed = preference ?? false;
 
-  useEffect(() => {
-    if (localStorage.getItem("pt-palette-collapsed") === "1") setCollapsed(true);
-  }, []);
-
-  const toggle = () =>
-    setCollapsed((c) => {
-      const next = !c;
-      localStorage.setItem("pt-palette-collapsed", next ? "1" : "0");
-      return next;
-    });
+  const toggle = () => setCollapsed(!collapsed);
 
   return (
     <div
@@ -80,7 +72,10 @@ export function Palette() {
           {Object.values(NODE_META)
             .filter((m) => m.group === group)
             .map((m) => (
-              <div
+              <button
+                type="button"
+                onClick={() => onAdd(m.kind)}
+                aria-label={`Adicionar ${m.label}`}
                 key={m.kind}
                 draggable
                 onDragStart={(e) => {
@@ -96,14 +91,14 @@ export function Palette() {
               >
                 <Swatch kind={m.kind} />
                 {!collapsed && m.label}
-              </div>
+              </button>
             ))}
         </div>
       ))}
 
       {!collapsed && (
         <div className="mt-1 rounded-[10px] bg-page p-2.5 text-[10.5px] leading-relaxed text-slate-400">
-          Arraste um elemento para o canvas. Clique para editar; <kbd className="rounded border border-border bg-surface px-1">Del</kbd> exclui o selecionado.
+          Clique para inserir após o selecionado e continuar o fluxo, ou arraste para posicionar. <kbd className="rounded border border-border bg-surface px-1">Del</kbd> exclui o selecionado.
         </div>
       )}
     </div>

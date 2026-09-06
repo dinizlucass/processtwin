@@ -300,7 +300,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
         </div>
 
         <div className="border-t border-border-soft px-4 py-3 text-[10.5px] leading-relaxed text-slate-400">
-          Organize por <b className="text-slate-500">área</b> ou <b className="text-slate-500">macroprocesso</b>. A hierarquia vira grafo no futuro.
+          Organize por <b className="text-slate-500">área</b> ou <b className="text-slate-500">macroprocesso</b>. Explore as relações na tela Conexões.
         </div>
       </aside>
 

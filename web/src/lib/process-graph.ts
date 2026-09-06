@@ -143,9 +143,11 @@ export function buildProcessGraph(
     }
 
     if (options.showSystems) {
+      const seenSystems = new Set<string>();
       for (const s of systemsByProcess[p.id] ?? []) {
         const slug = normalizeKey(s);
-        if (!slug) continue;
+        if (!slug || seenSystems.has(slug)) continue;
+        seenSystems.add(slug);
         links.push({ source: id, target: `sys:${slug}`, kind: "system" });
         bump(id);
         bump(`sys:${slug}`);

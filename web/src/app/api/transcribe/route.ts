@@ -14,10 +14,13 @@ export async function POST(req: Request) {
     return Response.json({ error: "Áudio ausente ou vazio." }, { status: 400 });
   }
 
+  if (audio.size > 25 * 1024 * 1024) return Response.json({ error: "O áudio deve ter no máximo 25 MB." }, { status: 413 });
   const client = new OpenAI({ apiKey });
   try {
     const buffer = Buffer.from(await audio.arrayBuffer());
-    const file = await toFile(buffer, "fala.webm", { type: audio.type || "audio/webm" });
+    const extensions: Record<string, string> = { "audio/wav": "wav", "audio/x-wav": "wav", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/webm": "webm" };
+    const type = audio.type.split(";")[0] || "audio/webm";
+    const file = await toFile(buffer, `fala.${extensions[type] || "webm"}`, { type });
     const result = await client.audio.transcriptions.create({
       file,
       model: process.env.OPENAI_TRANSCRIBE_MODEL || "whisper-1",

@@ -42,3 +42,25 @@ O app fica em `web/`, não na raiz do repo — em **Project Settings → General
 - `web/` — o app Next.js (o código de verdade)
 - `project/` — bundle de handoff do Claude Design (mockups originais em `.dc.html`), mantido só como referência
 - `.claude/launch.json` — config do Claude Code pra rodar o dev server
+
+## Melhorias do modelador e validação
+
+- Inserção por clique ou arraste, encaixe na grade e organização automática com opção de desfazer a organização.
+- Validação de início/fim, caminhos sem saída, elementos inalcançáveis e condições de decisões.
+- Grafo com conexões manuais direcionadas, descrição da entrega, busca por código/nome e visão de conexões diretas.
+- Painéis contextuais; preferências de recolhimento preservadas no navegador.
+
+Antes de usar o novo salvamento, execute `web/supabase/migrations/005_atomic_flow_save.sql` no SQL Editor do Supabase. A função salva nós, raias, conexões e versão em uma única transação e rejeita alterações com versão desatualizada. Sem a migração, o endpoint retorna 409 sem apagar o fluxo existente. Não há fallback para o salvamento destrutivo anterior.
+
+Verificações locais: `cd web`, `npm run lint`, `npm test` e `npm run build`.
+
+Limites atuais: o projeto ainda não possui autenticação/autorização nas APIs; não deve ser exposto publicamente como está. A validação visual é estrutural e não certifica conformidade BPMN. O aviso de alterações não salvas protege recarregamento/fechamento da aba; a navegação interna ainda exige salvar antes de sair.
+
+
+## Commit atômico e testes E2E (06/09/2026)
+
+Aplicar também `web/supabase/migrations/006_atomic_mapping_commit.sql`. A migração 006 e a 005 foram confirmadas no Supabase nesta revisão. O commit de IA agora salva processo, responsável, pasta, fluxo editado, sistemas, recomendações e vínculo com a conversa em uma transação. A API exige `requestId` UUID: repetir chave e conteúdo retorna o mesmo processo; mudar o conteúdo com a mesma chave retorna 409. O editor envia o fluxo final nessa mesma chamada.
+
+`npm test` executa testes locais, incluindo PostgreSQL em memória com PGlite, sem serviços externos. Para repetir o E2E real em PowerShell: `$env:E2E_LIVE='1'` e `npm run test:e2e` a partir de `web/`, com a aplicação rodando em localhost:3000. Esse teste faz chamadas reais de IA e cria um processo identificado por `E2E-`; resultados e IDs ficam em `web/.e2e/`. Se `voice-sample.wav` existir nessa pasta, também testa a transcrição de áudio. Não executa limpeza automática de dados existentes.
+
+Resultados, limites e processos de exemplo: `REVISAO.md`.
