@@ -20,7 +20,7 @@ export function prepareMappingCommit(input: unknown) {
     const { positions, lanes } = computeLayout(draft.nodes, draft.edges);
     flow = parseFlow({
       nodes: draft.nodes.map((n) => ({ id: n.id, position: positions.get(n.id), data: {
-        kind: n.kind, label: n.label, actor: n.actor, activityType: n.activityType || undefined, systems: n.systems ?? [],
+        kind: n.kind, label: n.label, actor: n.actor, activityType: n.activityType || undefined, systems: n.systems ?? [], description: n.description, sla: n.sla,
       } })),
       edges: draft.edges.map((e, i) => ({ id: `e-${i}`, source: e.source, target: e.target, sourceHandle: handleForLabel(e.label), label: e.label })),
       lanes: lanes.map((l) => ({ id: laneNodeId(l.key), label: l.label, posY: l.y, colorIndex: l.index, height: l.height, order: l.index })),

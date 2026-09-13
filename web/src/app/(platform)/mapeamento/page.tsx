@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ModelingCanvas, type FlowSavePayload, type ModelingCanvasHandle } from "@/components/flow/ModelingCanvas";
 import { PreMappingEditor } from "@/components/flow/PreMappingEditor";
+import { MappingEvidence } from "@/components/flow/MappingEvidence";
 import { VoiceInput } from "@/components/voice/VoiceInput";
 import type { PreMapping } from "@/lib/premapping";
 import { editorFlowToPreMapping, preMappingToEditorFlow } from "@/lib/draft-flow";
@@ -158,16 +159,17 @@ export default function MapeamentoPage() {
     if (typeof window !== "undefined") window.history.replaceState(null, "", "/mapeamento");
   }
 
-  async function persistConversation(msgs: Message[], status: string, processId?: string) {
+  async function persistConversation(msgs: Message[], status: string, processId?: string, extractedFields = facts) {
     try {
       const res = await fetch("/api/ai-conversation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: conversationId.current, messages: msgs, extractedFields: facts ?? {}, status, processId }),
+        body: JSON.stringify({ id: conversationId.current, messages: msgs, extractedFields: extractedFields ?? {}, status, processId }),
       });
       if (!res.ok) throw new Error("Não foi possível salvar a conversa.");
       const { id } = (await res.json()) as { id: string };
       conversationId.current = id;
+      window.history.replaceState(null, "", `/mapeamento?c=${id}`);
     } catch (err) {
       console.error("[mapeamento] falha ao salvar conversa", err);
       throw err;
@@ -205,8 +207,10 @@ export default function MapeamentoPage() {
       // Funde sem regredir: o piso da transcrição se mantém e a % só cresce.
       const mergedCoverage = mergeCoverage(coverage, data.coverage ?? null);
       setCoverage(mergedCoverage);
+      const updatedFacts = { ...facts, coverage: mergedCoverage };
+      setFacts(updatedFacts);
       setCanGenerate(data.readyToGenerate || coverageReady(mergedCoverage));
-      conversationSave.current = conversationSave.current.catch(() => {}).then(() => persistConversation(afterAi, "em_andamento"));
+      conversationSave.current = conversationSave.current.catch(() => {}).then(() => persistConversation(afterAi, "em_andamento", undefined, updatedFacts));
       void conversationSave.current.catch(() => setErrorMsg("Falha ao salvar a conversa. Tente enviar novamente antes de concluir o mapeamento."));
     } catch (err) {
       console.error("[mapeamento] falha no chat", err);
@@ -347,12 +351,16 @@ export default function MapeamentoPage() {
       setFacts(data.facts ?? null);
       setCoverage(seeded);
       setSuggestions([]);
+      setCanGenerate(coverageReady(seeded));
       setMessages([{ role: "ai", text: introMessage }]);
       // Fase atual vem da MESMA fonte que gera a % (a cobertura), então o
       // ponteiro e o percentual não se contradizem. fase_inicial é só fallback.
       setPhase(firstOpenPhaseNumber(seeded, data.fase_inicial));
 
       setStartMode("chat");
+
+      conversationSave.current = conversationSave.current.catch(() => {}).then(() => persistConversation([{ role: "ai", text: introMessage }], "em_andamento", undefined, data.facts ?? null));
+      void conversationSave.current.catch(() => setErrorMsg("A transcrição foi extraída, mas não foi possível salvar a conversa. Tente gerar novamente antes de sair."));
 
     } catch (err) {
       console.error("[mapeamento] Erro no upload", err);
@@ -709,7 +717,7 @@ export default function MapeamentoPage() {
             disabled={generating || (!draft && !canGenerate && messages.filter((m) => m.role === "user").length < 2)}
             className="mt-4 w-full rounded-[10px] bg-accent px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
           >
-            {generating ? "Gerando pré-mapeamento…" : draft ? "Voltar ao pré-mapeamento" : "Gerar pré-mapeamento"}
+            {generating ? "Gerando e conferindo o fluxo…" : draft ? "Voltar ao pré-mapeamento" : "Gerar pré-mapeamento"}
           </button>
           {draft ? (
             <button
@@ -839,6 +847,7 @@ function EditView({
               </div>
             )}
 
+            <MappingEvidence draft={draft} />
             {draft.recommendations.length > 0 ? (
               <div>
                 <div className="text-[11px] font-bold text-muted">Recomendações de melhoria</div>
@@ -939,12 +948,12 @@ function ReviewView({
   ].filter((a) => a.value);
 
   return (
-    <div className="grid h-full grid-cols-[1.35fr_1fr] gap-5 px-8 py-6">
+    <div className="grid h-full grid-cols-1 gap-4 overflow-auto px-4 py-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:overflow-hidden xl:px-6">
       {/* PREVIEW DO FLUXO */}
-      <div className="flex min-h-0 flex-col gap-3">
-        <div className="flex items-center justify-between">
+      <div className="flex min-h-[500px] min-w-0 flex-col gap-3 xl:min-h-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="m-0 text-[18px] font-bold tracking-tight">{draft.process.name}</h1>
               <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-bold text-accent-hover">
                 PRÉ-MAPEAMENTO IA
@@ -969,7 +978,7 @@ function ReviewView({
       </div>
 
       {/* PAINEL DE VALIDAÇÃO */}
-      <div className="flex min-h-0 flex-col gap-4 overflow-auto">
+      <div className="flex min-h-0 min-w-0 flex-col gap-4 xl:overflow-auto">
         <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
           <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Atributos</div>
           <div className="mt-3 flex flex-col gap-0.5">
@@ -983,6 +992,7 @@ function ReviewView({
           </div>
         </div>
 
+        <MappingEvidence draft={draft} />
         {draft.systems.length > 0 && (
           <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
             <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Sistemas</div>

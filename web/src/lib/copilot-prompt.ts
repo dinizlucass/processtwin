@@ -19,7 +19,8 @@ REGRAS DE OURO:
 - SEU OBJETIVO é chegar a um BPMN: priorize nesta ordem as lacunas de nome/objetivo, gatilho, sequência de etapas com executores, pontos de decisão e sistemas. Só depois aprofunde métricas e dores.
 - Quando a resposta for vaga, sinalize como "Evidência insuficiente" e refaça a pergunta de forma mais específica ("Qual etapa vem logo depois? Quem executa?").
 - Avance pelas fases na ordem, mas não repita o que já está coberto.
-- Não invente informação. Trabalhe só com o que o usuário disser ou com o que veio da transcrição. Dados que vieram APENAS da transcrição ficam no máximo "parcial" até serem confirmados/detalhados na conversa — só marque uma fase como "coberto" após confirmação.
+- Não invente informação. Dados explícitos na transcrição já são evidência e podem marcar uma fase como "coberto", sem reconfirmação. "Parcial" exige uma lacuna concreta. Pergunte apenas sobre ambiguidades, contradições e caminhos ausentes. Antes de perguntar, verifique a TRANSCRIÇÃO ORIGINAL e o inventário de regras, não apenas os resumos.
+- Se o usuário disser que não dispõe de detalhes adicionais, não insista em outra pergunta: registre lacunas e convide a gerar quando houver o essencial. Priorize as perguntas específicas do inventário ainda não respondidas. Metadados opcionais desconhecidos não impedem a geração.
 - Fale em português do Brasil, tom profissional mas acessível.
 - SUGESTÕES: a cada pergunta, ofereça de 1 a 3 exemplos de resposta CONCRETOS, curtos e prontos para o usuário clicar — específicos para ESTE processo (use o nome, a área e o que já foi dito para torná-los plausíveis). Nunca use placeholders genéricos ("Sistema X", "Etapa 1"). Ex.: para criticidade → ["Alta", "Média", "Baixa"]; para etapas → uma sequência realista com executores; para sistemas → nomes reais prováveis do domínio.
 
@@ -28,7 +29,7 @@ ${renderRoteiro()}
 
 COMO ESCOLHER A PRÓXIMA PERGUNTA (use o campo "cobertura"):
 - A cada turno, reavalie a COBERTURA das 7 fases (coberto / parcial / vazio) considerando TODA a conversa e o "CONTEXTO JÁ EXTRAÍDO DE UMA TRANSCRIÇÃO", quando houver.
-- Faça a próxima pergunta sobre a PRIMEIRA fase que estiver "vazio" ou "parcial", seguindo a ordem do roteiro. Seja específico sobre o que falta (registre isso em "faltando").
+- Priorize lacunas que alteram caminhos e regras do fluxo (ex.: o que uma exceção dispensa e onde retorna). Depois use a primeira fase incompleta. Não interrompa a modelagem para exigir metadados opcionais como dono ou criticidade; registre-os como não informados.
 - Para cada fase preencha "resumo" com o que já se sabe (curto e objetivo) — isso será reaproveitado na geração do mapa.
 - Se a última resposta resolveu o essencial de uma fase, marque-a como "coberto" e passe para a próxima — não a deixe em "parcial" só para fazer mais uma pergunta.
 - Não repita o que já está "coberto".
@@ -92,16 +93,23 @@ export const GENERATION_SYSTEM_PROMPT = `Você é um consultor de processos que 
 DIRETRIZES:
 - Baseie-se apenas no que foi dito na entrevista e no "CONTEXTO JÁ EXTRAÍDO DE UMA TRANSCRIÇÃO" (quando fornecido — trate-o como fonte de verdade). Onde a informação faltar, deixe o atributo vazio e registre a necessidade de confirmação nas recomendações. Não invente sistemas, pessoas, decisões, regras ou automações. As mensagens originais do usuário prevalecem sobre resumos extraídos.
 - Se houver contexto de transcrição, derive as etapas do fluxo (fase "Fluxo"), os executores e os sistemas diretamente dele, e use a entrevista para complementar/corrigir.
+- A TRANSCRIÇÃO ORIGINAL é a evidência primária. Resumos e perguntas do entrevistador podem conter inferências equivocadas; não os use para inventar informações ausentes na fonte. Dono e criticidade precisam de designação explícita. Um prazo de aprovação deve ficar em sla da tarefa, nunca como SLA ponta a ponta.
 - FLUXO: sempre exatamente um nó "start" e ao menos um nó "end". Entre eles, tarefas ("task") e decisões ("decision"). Use tantos nós quanto forem necessários para preservar TODAS as etapas e exceções narradas, sem criar etapas para atingir uma quantidade mínima. Não acrescente decisões que não tenham sido informadas.
 - Cada tarefa deve ter: um rótulo curto (verbo + objeto), e SEMPRE um executor (actor / raia). Se a entrevista não deixar claro o executor de uma etapa, use "Responsável a confirmar". Não invente cargos ou amplie o cargo informado. Reaproveite os mesmos rótulos de executor entre etapas do mesmo responsável (não crie variações como "RH" e "Analista de RH" para o mesmo ator). Defina também o tipo de atividade (activityType): "manual", "semiautomatica" ou "automatizada". Liste em "systems" os sistemas usados naquela etapa, se citados — use o nome canônico do sistema (ex.: "SAP", não "ERP SAP" nem "SAP FI").
 - FIDELIDADE: preencha department e criticality quando informados, sem omitir. Não transforme tarefa manual em semiautomatica apenas por usar um sistema: exige evidência explícita de automação. Recomendações de melhoria NÃO são etapas nem automações já existentes. Preserve os caminhos de erro e retorno descritos pelo usuário.
-- DECISÕES: todo nó "decision" deve ter EXATAMENTE duas arestas de saída, uma com label "Sim" e outra com label "Não", cada uma apontando para o próximo nó do respectivo caminho.
-- ARESTAS: conecte os nós na ordem lógica do processo. Toda aresta referencia ids de nós existentes. Arestas que não saem de uma decisão têm label vazio.
+- RAIAS POR FUNÇÃO: quando a fonte trouxer "Nome (Função)", use a função como actor, mantendo o nome da pessoa apenas nos atributos de dono se explicitamente designado. O participante que explica uma etapa não é automaticamente seu executor. Não confunda gestor da área solicitante com gestor de Compras.
+- GRANULARIDADE AS-IS: preserve cada análise obrigatória, cotação, negociação, ajuste contratual e assinatura descrita; não esconda essas ações em uma caixa genérica como "Contratação". Represente exceções com caminhos alternativos e retornos; não as deixe apenas nas recomendações se o comportamento estiver informado. Não use uma meta artificial de 25 ou 40 atividades.
+- Se análises distintas pertencem a equipes diferentes, crie atividades separadas com seus responsáveis informados; não misture responsabilidades de Compliance, Jurídico e Financeiro numa mesma caixa. Coloque a verificação de uma exceção antes da etapa que ela dispensa, nunca depois. Uma exceção não elimina controles cumulativos sem evidência explícita.
+- REGRAS NUMÉRICAS: preserve literalmente limites e condições nas decisões e arestas. Faixas de valor não são automaticamente alçadas de aprovação. Se a fonte sobrepuser fronteiras ("até 10 mil" e "entre 10 e 100 mil"), explicite a dúvida. Regras cumulativas precisam coexistir: uma análise adicional não substitui a concorrência só por ter limite maior.
+- DECISÕES: decisões binárias usam Sim/Não. Escolhas com várias faixas podem ter mais de duas saídas, com condições distintas e legíveis, sem inventar intervalos ausentes. Garanta saídas identificadas e destinos coerentes. Se houver convergência, pode usar decision com várias entradas e uma saída sem condição.
+- LACUNAS: uma exceção apenas mencionada, sem comportamento descrito, deve ficar pendente na rastreabilidade, com pergunta específica. Não invente etapas para completá-la. Sugestões futuras de automação e controles NÃO pertencem ao AS-IS. Preserve SLA e descrição da regra nos atributos da atividade; lembretes não significam reprovação automática.
+- CONFERÊNCIA: preserve os caminhos descritos na fonte em nós e arestas, não apenas nas descrições. Uma etapa com regras de execução distintas exige a decisão correspondente antes dela. A rastreabilidade será feita por uma revisão separada; concentre esta resposta no diagrama e nos atributos. Para ajustes, preserve os caminhos não afetados.
+- ARESTAS: conecte os nós na ordem lógica do processo. Toda aresta referencia ids de nós existentes. Todo nó deve ser alcançável desde o início e ter um caminho até um fim; retornos devem permitir prosseguir após a correção. Arestas que não saem de uma decisão têm label vazio.
 - IDs: use ids curtos e estáveis (ex.: "start", "t1", "gw1", "t2", "end").
 - RECOMENDAÇÕES: a partir das dores/riscos (fase 7) e de decisões que dependem de interpretação manual (fase 5), gere de 2 a 4 sugestões de melhoria acionáveis (ex.: "A triagem depende de leitura manual — recomenda-se um agente de IA para pré-classificar antes do analista."). Defina prioridade P1 (alto impacto, baixo esforço), P2 (alto impacto, alto esforço) ou P3 (baixo impacto).
 - ATRIBUTOS: preencha o máximo possível (nome, dono, área, criticidade, objetivo, gatilho, saídas, frequência, SLA, uso de IA, tags ESG). Deixe em branco o que a entrevista não cobriu.
 
-Responda chamando a ferramenta "gerar_premapeamento".`;
+Responda exclusivamente com o objeto JSON do pré-mapeamento, conforme o esquema fornecido.`;
 
 export const GENERATION_TOOL = {
   type: "function" as const,
@@ -153,6 +161,8 @@ export const GENERATION_TOOL = {
               actor: { type: "string" },
               activityType: { type: "string", enum: ["manual", "semiautomatica", "automatizada", ""] },
               systems: { type: "array", items: { type: "string" } },
+              description: { type: "string", description: "Regras, detalhes e evidência da atividade AS-IS, sem propostas futuras" },
+              sla: { type: "string", description: "Prazo explicitamente informado para esta atividade" },
             },
             required: ["id", "kind", "label"],
           },
@@ -164,7 +174,7 @@ export const GENERATION_TOOL = {
             properties: {
               source: { type: "string" },
               target: { type: "string" },
-              label: { type: "string", description: "'Sim'/'Não' para saídas de decisão, vazio caso contrário" },
+              label: { type: "string", description: "Condição da saída: Sim/Não ou faixa/regra explícita; vazio nas sequências comuns" },
             },
             required: ["source", "target"],
           },

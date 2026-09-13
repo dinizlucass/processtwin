@@ -65,3 +65,7 @@ Relatórios brutos locais: `web/.e2e/33e6b063-5949-49b8-b774-65b1fe58cbc3.json` 
 4. **Escopo de testes:** dois cenários sintéticos, concorrência de três chamadas, sem ensaio de carga prolongada, sem certificação completa BPMN. O aviso de alterações não salvas protege fechamento/recarregamento; navegação interna ainda requer salvar antes de sair.
 
 Nenhum processo de negócio preexistente foi alterado ou removido pelos testes.
+
+## Complemento — fidelidade documental e modelos de IA
+
+A avaliação posterior, concluída em 13/09/2026, está em [AVALIACAO_IA.md](AVALIACAO_IA.md), com custos medidos, escolha do GPT-5.4 Mini, resultados e limitações. Foram adicionados preservação da fonte integral, inventário de evidências, revisão de fidelidade, condições livres nas arestas, retomada de uploads e correção das setas na reabertura. Os testes locais passaram de 18 para 24. A persistência real passou em cinco verificações após a correção da consulta de conversa. O caso complexo passou nas verificações específicas do cenário, mas a revisão automática não concluiu dentro do orçamento de tempo; exige revisão humana.

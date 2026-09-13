@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { getConversation, listResumableConversations } from "@/lib/queries/conversations";
+import type { ExtractedFacts } from "@/lib/phases";
 
 /** GET ?id=<id>  → dados para retomar a entrevista de uma conversa.
  *  GET ?recent=1 → conversas recentes que dá para continuar (para o "continuar de onde parou"). */
@@ -8,7 +9,12 @@ export async function GET(req: Request) {
   const id = searchParams.get("id");
 
   if (id) {
-    const c = await getConversation(id);
+    let c;
+    try {
+      c = await getConversation(id);
+    } catch {
+      return Response.json({ error: "Não foi possível consultar a conversa. Tente novamente." }, { status: 503 });
+    }
     if (!c) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
     return Response.json({
       id: c.id,
@@ -37,7 +43,7 @@ export async function GET(req: Request) {
 interface Body {
   id?: string;
   messages: { role: string; text: string }[];
-  extractedFields: Record<string, string>;
+  extractedFields: ExtractedFacts;
   status?: string;
   processId?: string;
 }

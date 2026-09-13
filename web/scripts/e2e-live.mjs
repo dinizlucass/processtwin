@@ -9,6 +9,7 @@ if (process.env.E2E_LIVE !== "1") throw new Error("Set E2E_LIVE=1 to run against
 nextEnv.loadEnvConfig(process.cwd());
 const { prepareMappingCommit } = loadTs("lib/mapping-commit.ts");
 const { validateFlow } = loadTs("lib/flow-analysis.ts");
+const { PHASE_KEYS } = loadTs("lib/phases.ts");
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const base = process.env.E2E_BASE_URL || "http://localhost:3000";
 const run = randomUUID();
@@ -23,7 +24,7 @@ const step = async (label, action) => {
   catch (error) { report.checks.push({ label, status: "fail", message: error.message, ms: Date.now() - start }); saveReport(); throw error; }
 };
 async function json(path, body, status = 200) {
-  const response = await fetch(base + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(120000) });
+  const response = await fetch(base + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(330000) });
   const data = await response.json();
   assert.equal(response.status, status, `${path}: ${JSON.stringify(data)}`); return data;
 }
@@ -42,7 +43,8 @@ try {
     const form = new FormData(); form.append("file", new Blob([transcript], { type: "text/plain" }), "transcricao.txt");
     const response = await fetch(base + "/api/extract-transcript", { method: "POST", body: form, signal: AbortSignal.timeout(120000) });
     const data = await response.json(); assert.equal(response.status, 200, JSON.stringify(data));
-    assert.equal(Object.keys(data.facts).length, 7); assert.ok(data.facts.fluxo); return data;
+    assert.ok(PHASE_KEYS.every((key) => key in data.facts)); assert.ok(data.facts.fluxo);
+    assert.equal(data.facts.sourceTranscript, transcript); assert.ok(data.facts.requirements.length > 0); return data;
   });
   const messages = [{ role: "user", text: transcript }];
   const interview = await step("entrevista real sem fallback", async () => {
@@ -61,7 +63,9 @@ try {
     const data = await json("/api/ai-conversation", { messages, extractedFields: extracted.facts });
     report.resources.conversationId = data.id; saveReport();
     const response = await fetch(base + `/api/ai-conversation?id=${data.id}`); const loaded = await response.json();
-    assert.equal(loaded.messages[0].text, transcript); return data;
+    assert.equal(response.status, 200, JSON.stringify(loaded));
+    assert.equal(loaded.messages[0].text, transcript);
+    assert.deepEqual(loaded.extractedFields, extracted.facts); return data;
   });
   const request = { requestId: randomUUID(), conversationId: conv.id, draft: generated.draft };
   fs.writeFileSync(`.e2e/${run}-request.json`, JSON.stringify(request, null, 2));

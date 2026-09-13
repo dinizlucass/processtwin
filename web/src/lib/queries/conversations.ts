@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import type { ExtractedFacts } from "@/lib/phases";
 
 export interface ConversationMessage {
   role: "ai" | "user";
@@ -22,13 +23,13 @@ export interface ConversationListItem {
 
 export interface ConversationDetail extends ConversationListItem {
   messages: ConversationMessage[];
-  extractedFields: Record<string, string>;
+  extractedFields: ExtractedFacts;
 }
 
 interface Row {
   id: string;
   messages: ConversationMessage[] | null;
-  extracted_fields: Record<string, string> | null;
+  extracted_fields: ExtractedFacts | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -134,9 +135,9 @@ export async function listConversations(): Promise<ConversationListItem[]> {
   if (error) throw new Error(`Falha ao listar conversas: ${error.message}`);
 
   return (data as unknown as Row[])
-    .map(toItem)
-    // ignora conversas vazias (só a abertura, sem nenhuma resposta do usuário)
-    .filter((c) => c.userMessageCount > 0);
+    // Uploads já contêm trabalho recuperável mesmo antes da primeira resposta.
+    .filter((row) => !!row.extracted_fields?.sourceTranscript?.trim() || normalizeMessages(row.messages).some((message) => message.role === "user"))
+    .map(toItem);
 }
 
 /** Conversas que ainda dá para retomar a entrevista (não concluídas), mais
@@ -147,12 +148,17 @@ export async function listResumableConversations(limit = 6): Promise<Conversatio
 
 export async function getConversation(id: string): Promise<ConversationDetail | null> {
   const supabase = supabaseAdmin();
-  const { data, error } = await supabase
+  const read = () => supabase
     .from("ai_conversation")
     .select(SELECT_COLS)
     .eq("id", id)
-    .single();
-  if (error || !data) return null;
+    .maybeSingle();
+  let result = await read();
+  // A read is safe to repeat after a transport/server failure; never retry mutations here.
+  if (result.error && (result.status === 0 || result.status >= 500)) result = await read();
+  const { data, error } = result;
+  if (error) throw new Error("Falha ao consultar a conversa.");
+  if (!data) return null;
 
   const row = data as unknown as Row;
   return { ...toItem(row), messages: normalizeMessages(row.messages), extractedFields: row.extracted_fields ?? {} };

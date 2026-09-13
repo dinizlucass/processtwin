@@ -23,8 +23,6 @@ const ACTIVITY_OPTIONS: { value: ActivityType; label: string }[] = [
   { value: "automatizada", label: "Automatizada" },
 ];
 
-const EDGE_LABELS = ["", "Sim", "Não"] as const;
-
 function newId() {
   return `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -180,17 +178,12 @@ function Inner({ preMapping, onChange }: { preMapping: PreMapping; onChange: (pm
           <div className="mb-2 text-[11px] font-bold uppercase tracking-[.05em] text-muted">Conexão</div>
           <label className="mb-2 flex flex-col gap-1">
             <span className="text-[10.5px] font-semibold text-slate-500">Rótulo (saída de decisão)</span>
-            <select
+            <input
               value={selEdge.label ?? ""}
               onChange={(e) => patchEdge(selEdgeIdx, { label: e.target.value || undefined })}
+              placeholder="Sim, Não ou condição da regra"
               className="rounded-[7px] border border-border bg-page px-2 py-1.5 text-[12px] outline-none focus:border-indigo-400"
-            >
-              {EDGE_LABELS.map((l) => (
-                <option key={l} value={l}>
-                  {l === "" ? "— nenhum —" : l}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <button
             onClick={() => deleteEdge(selEdgeIdx)}
@@ -206,7 +199,8 @@ function Inner({ preMapping, onChange }: { preMapping: PreMapping; onChange: (pm
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        minZoom={0.03}
+        fitViewOptions={{ padding: 0.2, minZoom: 0.03 }}
         nodesDraggable={false}
         nodesConnectable
         elementsSelectable

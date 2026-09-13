@@ -586,6 +586,7 @@ function Canvas({
           nodeTypes={nodeTypes}
           deleteKeyCode={["Delete", "Backspace"]}
           fitView
+          minZoom={0.03}
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#cbd5e1" />

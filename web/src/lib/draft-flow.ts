@@ -29,6 +29,8 @@ export function preMappingToEditorFlow(pm: PreMapping): { nodes: Node[]; edges: 
       kind: n.kind,
       label: n.label,
       actor: n.actor,
+      description: n.description,
+      sla: n.sla,
       activityType: (n.activityType || undefined) as ActivityType | undefined,
       systems: n.systems && n.systems.length ? n.systems : [],
       tags: [],
@@ -69,6 +71,8 @@ export function editorFlowToPreMapping(
       kind: n.data.kind as NodeKind,
       label: n.data.label ?? "Etapa",
       actor: n.data.actor || undefined,
+      description: n.data.description || undefined,
+      sla: n.data.sla || undefined,
       activityType: (n.data.activityType || undefined) as ActivityType | undefined,
       systems: n.data.systems && n.data.systems.length ? n.data.systems : undefined,
     }));
@@ -79,5 +83,5 @@ export function editorFlowToPreMapping(
     label: typeof e.label === "string" && e.label.trim() ? e.label : undefined,
   }));
 
-  return { process: base.process, systems: base.systems, recommendations: base.recommendations, nodes, edges };
+  return { ...base, nodes, edges };
 }

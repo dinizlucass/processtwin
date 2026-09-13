@@ -1,6 +1,9 @@
-import type { Edge, Node } from "@xyflow/react";
-import { MarkerType } from "@xyflow/react";
+import type { Edge, Node, MarkerType } from "@xyflow/react";
 import { NODE_SIZE, type ActivityType, type FlowNodeData, type NodeKind } from "@/lib/flow-types";
+import type { MappingRequirement, MappingTrace } from "@/lib/mapping-evidence";
+
+// This module also runs in Server Components, where client enum values are unavailable.
+const ARROW_CLOSED = "arrowclosed" as MarkerType;
 
 // ---------- Tipos do pré-mapeamento (saída da IA) ----------
 
@@ -33,6 +36,8 @@ export interface DraftNode {
   actor?: string;
   activityType?: ActivityType | "";
   systems?: string[];
+  description?: string;
+  sla?: string;
 }
 
 export interface DraftEdge {
@@ -53,6 +58,9 @@ export interface PreMapping {
   nodes: DraftNode[];
   edges: DraftEdge[];
   recommendations: DraftRecommendation[];
+  requirements?: MappingRequirement[];
+  traceability?: MappingTrace[];
+  reviewIssues?: string[];
 }
 
 const VALID_KINDS: NodeKind[] = ["start", "end", "task", "decision"];
@@ -92,6 +100,8 @@ export function sanitizePreMapping(raw: Partial<PreMapping>): PreMapping {
           ? ((VALID_ACTIVITY.includes(n.activityType as ActivityType) ? n.activityType : "manual") as ActivityType)
           : undefined,
       systems: (n.systems ?? []).map((s) => s.trim()).filter(Boolean),
+      description: typeof n.description === "string" ? n.description.trim() : undefined,
+      sla: typeof n.sla === "string" ? n.sla.trim() : undefined,
     }));
 
   const idSet = new Set(nodes.map((n) => n.id));
@@ -130,7 +140,7 @@ export function sanitizePreMapping(raw: Partial<PreMapping>): PreMapping {
   nodes = dedupeById(nodes);
   nodes = splitSharedEnds(nodes, edges);
 
-  return { process, systems, nodes, edges, recommendations };
+  return { process, systems, nodes, edges, recommendations, requirements: raw.requirements, traceability: raw.traceability, reviewIssues: raw.reviewIssues };
 }
 
 /**
@@ -428,7 +438,7 @@ export function routeEdges(nodes: Node[], edges: Edge[]): Edge[] {
     const base: Edge = {
       ...e,
       type: "smoothstep",
-      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: GREY },
+      markerEnd: { type: ARROW_CLOSED, width: 18, height: 18, color: GREY },
     };
     if (!s || !t) return { ...base, style: strokeFor(label, false) };
 
@@ -465,7 +475,7 @@ export function routeEdges(nodes: Node[], edges: Edge[]): Edge[] {
       labelBgPadding: [6, 3],
       labelBgBorderRadius: 8,
       style: strokeFor(label, loop),
-      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: markerColor },
+      markerEnd: { type: ARROW_CLOSED, width: 18, height: 18, color: markerColor },
     };
   });
 }
@@ -499,6 +509,8 @@ export function toReactFlow(pm: PreMapping): { nodes: Node[]; edges: Edge[] } {
       kind: n.kind,
       label: n.label,
       actor: n.actor,
+      description: n.description,
+      sla: n.sla,
       activityType: (n.activityType || undefined) as ActivityType | undefined,
       systems: n.systems && n.systems.length ? n.systems : [],
       tags: [],
