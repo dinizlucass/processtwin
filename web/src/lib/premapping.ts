@@ -21,6 +21,8 @@ export interface DraftProcess {
   usesAI?: boolean;
   aiDetail?: string;
   esgTags?: string[];
+  painPoints?: string[];
+  opportunities?: string[];
 }
 
 export interface DraftSystem {
@@ -82,9 +84,11 @@ export function sanitizePreMapping(raw: Partial<PreMapping>): PreMapping {
     outputs: raw.process?.outputs?.trim() || undefined,
     frequency: raw.process?.frequency?.trim() || undefined,
     sla: raw.process?.sla?.trim() || undefined,
-    usesAI: Boolean(raw.process?.usesAI),
+    usesAI: typeof raw.process?.usesAI === "boolean" ? raw.process.usesAI : undefined,
     aiDetail: raw.process?.aiDetail?.trim() || undefined,
     esgTags: (raw.process?.esgTags ?? []).map((t) => t.trim()).filter(Boolean),
+    painPoints: (raw.process?.painPoints ?? []).map((t) => t.trim()).filter(Boolean),
+    opportunities: (raw.process?.opportunities ?? []).map((t) => t.trim()).filter(Boolean),
   };
 
   // nós válidos
@@ -95,10 +99,9 @@ export function sanitizePreMapping(raw: Partial<PreMapping>): PreMapping {
       kind: n.kind,
       label: n.label?.trim() || "Etapa",
       actor: n.actor?.trim() || undefined,
-      activityType:
-        n.kind === "task"
-          ? ((VALID_ACTIVITY.includes(n.activityType as ActivityType) ? n.activityType : "manual") as ActivityType)
-          : undefined,
+      activityType: n.kind === "task" && VALID_ACTIVITY.includes(n.activityType as ActivityType)
+        ? (n.activityType as ActivityType)
+        : undefined,
       systems: (n.systems ?? []).map((s) => s.trim()).filter(Boolean),
       description: typeof n.description === "string" ? n.description.trim() : undefined,
       sla: typeof n.sla === "string" ? n.sla.trim() : undefined,
@@ -127,7 +130,7 @@ export function sanitizePreMapping(raw: Partial<PreMapping>): PreMapping {
 
   const systems: DraftSystem[] = (raw.systems ?? [])
     .filter((s) => s && s.name?.trim())
-    .map((s) => ({ name: s.name.trim(), isPrimary: Boolean(s.isPrimary), role: s.role?.trim() || undefined }));
+    .map((s) => ({ name: s.name.trim(), isPrimary: typeof s.isPrimary === "boolean" ? s.isPrimary : undefined, role: s.role?.trim() || undefined }));
 
   const recommendations: DraftRecommendation[] = (raw.recommendations ?? [])
     .filter((r) => r && r.title?.trim())

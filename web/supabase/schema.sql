@@ -34,7 +34,7 @@ create table process (
   sla text,
   regulation text[] not null default '{}',
   owner_id uuid references process_owner(id),
-  uses_ai boolean not null default false,
+  uses_ai boolean,
   ai_detail text,
   esg_tags text[] not null default '{}',
   last_reviewed_at date,
@@ -53,7 +53,7 @@ create table flow_node (
   activity_type activity_type,
   alert_frequency text,
   tags text[] not null default '{}',
-  uses_ai boolean not null default false,
+  uses_ai boolean,
   pos_x double precision not null default 0,
   pos_y double precision not null default 0,
   attributes jsonb not null default '{}', -- descrição, sistemas, SLA, controles, etc.
@@ -91,7 +91,7 @@ create table system_dependency (
   id uuid primary key default gen_random_uuid(),
   process_id uuid not null references process(id) on delete cascade,
   system_name text not null,
-  is_primary boolean not null default false,
+  is_primary boolean,
   criticality criticality_level,
   rto text,
   rpo text
@@ -113,6 +113,14 @@ create table improvement_opportunity (
   impact_hours_year numeric,
   effort text check (effort in ('baixo', 'alto')),
   created_at timestamptz not null default now()
+);
+
+create table process_pain_point (
+  id uuid primary key default gen_random_uuid(),
+  process_id uuid not null references process(id) on delete cascade,
+  description text not null,
+  created_at timestamptz not null default now(),
+  unique (process_id, description)
 );
 
 create table ai_conversation (

@@ -47,6 +47,13 @@ function overlap(a: Set<string>, b: Set<string>): string[] {
   return out;
 }
 
+function artifactMatch(output: string | null, target: string | null): string[] {
+  const shared = overlap(tokens(output), tokens(target));
+  // Uma palavra genérica isolada criava conexões como "pedido" → "compra".
+  // Duas palavras significativas formam uma assinatura mínima do artefato.
+  return shared.length >= 2 ? shared : [];
+}
+
 /**
  * Infere hand-offs candidatos: para cada par (A,B) distinto, se a saída de A
  * compartilhar um termo significativo com o gatilho ou o nome de B, propõe
@@ -64,7 +71,7 @@ export function inferHandoffCandidates(processes: ProcessIO[], max = 40): Handof
     if (!a.out.size) continue;
     for (const b of enriched) {
       if (a.p.id === b.p.id) continue;
-      const shared = overlap(a.out, b.inTrigger);
+      const shared = artifactMatch(a.p.outputs, `${b.p.trigger ?? ""} ${b.p.name}`);
       if (shared.length === 0) continue;
       candidates.push({
         h: { source: a.p.id, target: b.p.id, label: shared[0], confirmed: false },

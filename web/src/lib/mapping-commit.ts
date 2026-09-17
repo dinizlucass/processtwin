@@ -1,10 +1,11 @@
 import { computeLayout, handleForLabel, laneNodeId, sanitizePreMapping, type PreMapping } from "@/lib/premapping";
 import { flowRows, isUuid, parseFlow, type PersistableFlow } from "@/lib/flow-persistence";
 import { canonicalSystemName } from "@/lib/systems";
+import { validateFlow } from "@/lib/flow-analysis";
 
 /** Prepare the complete transaction without writing anything to the database. */
 export function prepareMappingCommit(input: unknown) {
-  const body = input as { requestId?: string; conversationId?: string | null; draft?: PreMapping; flow?: PersistableFlow };
+  const body = input as { requestId?: string; conversationId?: string | null; draft?: PreMapping; flow?: PersistableFlow; acceptReviewIssues?: boolean };
   if (!body || !isUuid(body.requestId) || (body.conversationId != null && !isUuid(body.conversationId))) throw new Error("Informe uma chave de idempotência e uma conversa válidas.");
   const raw = body.draft;
   if (!raw || typeof raw.process?.name !== "string" || !raw.process.name.trim() || !Array.isArray(raw.nodes) || !raw.nodes.length || !Array.isArray(raw.edges) || raw.nodes.length > 5000 || raw.edges.length > 10000) throw new Error("Pré-mapeamento inválido ou vazio.");
@@ -26,13 +27,27 @@ export function prepareMappingCommit(input: unknown) {
       lanes: lanes.map((l) => ({ id: laneNodeId(l.key), label: l.label, posY: l.y, colorIndex: l.index, height: l.height, order: l.index })),
     });
   }
-  const systems = new Map<string, boolean>();
+  const structuralIssues = validateFlow(
+    flow.nodes.map((node) => ({ id: node.id, type: node.data.kind, position: node.position, data: node.data })),
+    flow.edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      label: typeof edge.label === "string" ? edge.label : undefined,
+    })),
+  );
+  if (structuralIssues.length) throw new Error(`Corrija a estrutura antes de concluir: ${structuralIssues.join(" ")}`);
+  if (draft.reviewIssues?.length && body.acceptReviewIssues !== true) {
+    throw new Error("A revisão encontrou pontos pendentes. Corrija o mapa ou aceite explicitamente os avisos antes de concluir.");
+  }
+  const systems = new Map<string, boolean | undefined>();
   for (const s of draft.systems) {
     const name = canonicalSystemName(s.name);
-    if (name) systems.set(name, (systems.get(name) ?? false) || !!s.isPrimary);
+    if (name) systems.set(name, systems.get(name) === true ? true : s.isPrimary);
   }
   flow = { ...flow, nodes: flow.nodes.map((n) => ({ ...n, data: { ...n.data, systems: [...new Set((n.data.systems ?? []).map(canonicalSystemName).filter(Boolean))] } })) };
-  for (const n of flow.nodes) for (const system of n.data.systems ?? []) if (!systems.has(system)) systems.set(system, false);
+  for (const n of flow.nodes) for (const system of n.data.systems ?? []) if (!systems.has(system)) systems.set(system, undefined);
   const actors = new Map<string, number>();
   for (const n of flow.nodes) if (n.data.actor?.trim()) actors.set(n.data.actor.trim(), (actors.get(n.data.actor.trim()) ?? 0) + 1);
   const department = draft.process.department || [...actors].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
@@ -44,9 +59,13 @@ export function prepareMappingCommit(input: unknown) {
     folder: department,
     process: { name: p.name, department, criticality: p.criticality || null, objective: p.objective ?? null,
       trigger_desc: p.trigger ?? null, outputs: p.outputs ?? null, frequency: p.frequency ?? null, sla: p.sla ?? null,
-      uses_ai: p.usesAI ?? false, ai_detail: p.aiDetail ?? null, esg_tags: p.esgTags ?? [] },
+      uses_ai: p.usesAI ?? null, ai_detail: p.aiDetail ?? null, esg_tags: p.esgTags ?? [] },
     ...rows,
-    systems: [...systems].sort(([a], [b]) => a.localeCompare(b)).map(([system_name, is_primary]) => ({ system_name, is_primary })),
-    recommendations: draft.recommendations.map((r) => ({ title: r.detail ? `${r.title} — ${r.detail}` : r.title, priority: r.priority || null })),
+    systems: [...systems].sort(([a], [b]) => a.localeCompare(b)).map(([system_name, is_primary]) => ({ system_name, is_primary: is_primary ?? null })),
+    pain_points: p.painPoints ?? [],
+    recommendations: [
+      ...draft.recommendations.map((r) => ({ title: r.detail ? `${r.title} — ${r.detail}` : r.title, priority: r.priority || null })),
+      ...(p.opportunities ?? []).map((title) => ({ title, priority: null })),
+    ],
   } };
 }

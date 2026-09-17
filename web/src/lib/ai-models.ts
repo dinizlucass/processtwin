@@ -12,3 +12,9 @@ export function mappingResponseOptions() {
   const { model, reasoning_effort } = mappingOptions();
   return { model, ...(reasoning_effort ? { reasoning: { effort: reasoning_effort } } : {}), store: false as const };
 }
+
+/** Chat Completions rejects function tools with Luna's default reasoning effort. */
+export function mappingInterviewOptions() {
+  const model = mappingModel();
+  return { model, ...(model === "gpt-5.6-luna" ? { reasoning_effort: "none" as const } : {}) };
+}

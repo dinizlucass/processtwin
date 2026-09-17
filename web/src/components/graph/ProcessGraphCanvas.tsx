@@ -16,6 +16,8 @@ interface FGMethods {
   zoomToFit: (ms?: number, padding?: number) => void;
   centerAt: (x?: number, y?: number, ms?: number) => void;
   zoom: (k?: number, ms?: number) => void;
+  d3Force: (name: string) => { strength?: (value: number) => unknown; distance?: (value: number | ((link: GraphLink) => number)) => unknown } | undefined;
+  d3ReheatSimulation: () => void;
 }
 
 const criticalityTone: Record<string, Tone> = { alta: "danger", media: "warning", baixa: "success" };
@@ -109,6 +111,16 @@ export function ProcessGraphCanvas({
     () => buildProcessGraph(processes, folders, systemsByProcess, options, handoffs),
     [processes, folders, systemsByProcess, options, handoffs],
   );
+
+  useEffect(() => {
+    if (!ForceGraph || !fgRef.current || graphData.nodes.length === 0) return;
+    const timer = window.setTimeout(() => {
+      fgRef.current?.d3Force("charge")?.strength?.(-260);
+      fgRef.current?.d3Force("link")?.distance?.((link: GraphLink) => link.kind === "handoff" ? 150 : 105);
+      fgRef.current?.d3ReheatSimulation();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [ForceGraph, graphData]);
 
   const adjacency = useMemo(() => {
     const m = new Map<string, Set<string>>();
@@ -241,8 +253,8 @@ export function ProcessGraphCanvas({
             nodeRelSize={1}
             nodeVal={(n: GraphNode) => n.val}
             nodeLabel={(n: GraphNode) => escapeHtml(`${TYPE_LABEL[n.type]}: ${n.name}`)}
-            cooldownTicks={120}
-            d3VelocityDecay={0.3}
+            cooldownTicks={220}
+            d3VelocityDecay={0.22}
             onEngineStop={() => {
               if (fittedRef.current !== fitKey) {
                 fittedRef.current = fitKey;
@@ -276,15 +288,15 @@ export function ProcessGraphCanvas({
                 ctx.stroke();
               }
 
-              const showLabel = graphData.nodes.length <= 50 || scale > 1.4 || (highlightNodes ? highlightNodes.has(n.id) : n.type !== "process" && r > 7);
+              const showLabel = n.type !== "process" || activeId === n.id || Boolean(searchMatches?.has(n.id)) || scale > 2.25;
               if (showLabel) {
-                const fs = Math.max(11 / scale, 1.4);
+                const fs = Math.max(11 / scale, 2.2);
                 ctx.font = `${n.type === "process" ? 600 : 700} ${fs}px Segoe UI, system-ui, sans-serif`;
                 ctx.textAlign = "center";
                 ctx.textBaseline = "top";
                 ctx.globalAlpha = dim ? 0.1 : 0.95;
                 ctx.fillStyle = "#1e293b";
-                ctx.fillText(truncate(n.name, 26), n.x, n.y + r + 1.5 / scale);
+                ctx.fillText(truncate(n.name, n.type === "process" ? 32 : 26), n.x, n.y + r + 2 / scale);
               }
               ctx.globalAlpha = 1;
             }}

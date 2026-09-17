@@ -34,7 +34,7 @@ export function preMappingToEditorFlow(pm: PreMapping): { nodes: Node[]; edges: 
       activityType: (n.activityType || undefined) as ActivityType | undefined,
       systems: n.systems && n.systems.length ? n.systems : [],
       tags: [],
-      usesAI: false,
+      usesAI: undefined,
     },
   }));
 

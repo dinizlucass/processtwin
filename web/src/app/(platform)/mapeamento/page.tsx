@@ -71,6 +71,7 @@ export default function MapeamentoPage() {
   const [adjustText, setAdjustText] = useState("");
   const [draftKey, setDraftKey] = useState(0); // muda a cada geração → reseeda o editor
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [reviewAccepted, setReviewAccepted] = useState(false);
 
   const [resumedFrom, setResumedFrom] = useState<string | null>(null); // título da conversa retomada
   const [recentConvs, setRecentConvs] = useState<ResumableConv[]>([]);
@@ -235,6 +236,7 @@ export default function MapeamentoPage() {
       }
       const { draft: newDraft } = (await res.json()) as { draft: PreMapping };
       setDraft(newDraft);
+      setReviewAccepted(false);
       setDraftKey((k) => k + 1); // reseeda o editor com o novo rascunho
       setMode("review");
       setAdjustText("");
@@ -257,7 +259,7 @@ export default function MapeamentoPage() {
     setErrorMsg(null);
     try {
       await conversationSave.current;
-      const content = JSON.stringify({ draft, flow, conversationId: conversationId.current });
+      const content = JSON.stringify({ draft, flow, conversationId: conversationId.current, acceptReviewIssues: reviewAccepted });
       if (commitAttempt.current?.content !== content) commitAttempt.current = { content, requestId: crypto.randomUUID() };
       const res = await fetch("/api/mapping/commit", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -302,6 +304,7 @@ export default function MapeamentoPage() {
       }
       const { draft: newDraft } = (await res.json()) as { draft: PreMapping };
       setDraft(newDraft);
+      setReviewAccepted(false);
       setDraftKey((k) => k + 1); // reseeda o editor com o fluxo ajustado
       setAdjustText("");
     } catch (err) {
@@ -393,7 +396,7 @@ export default function MapeamentoPage() {
     return (
       <ReviewView
         draft={draft}
-        onDraftChange={setDraft}
+        onDraftChange={(nextDraft) => { setDraft(nextDraft); setReviewAccepted(false); }}
         generating={generating}
         saving={saving}
         adjustText={adjustText}
@@ -402,6 +405,8 @@ export default function MapeamentoPage() {
         onBackToInterview={() => setMode("interview")}
         onEdit={() => setMode("edit")}
         onSave={commit}
+        reviewAccepted={reviewAccepted}
+        onReviewAccepted={setReviewAccepted}
         errorMsg={errorMsg}
       />
     );
@@ -779,7 +784,7 @@ function EditView({
     { label: "Saídas", value: draft.process.outputs },
     { label: "Frequência", value: draft.process.frequency },
     { label: "SLA", value: draft.process.sla },
-    { label: "Uso de IA", value: draft.process.usesAI ? draft.process.aiDetail || "Sim" : undefined },
+    { label: "Uso de IA", value: typeof draft.process.usesAI === "boolean" ? (draft.process.usesAI ? draft.process.aiDetail || "Sim" : "Não") : undefined },
     { label: "ESG", value: draft.process.esgTags?.length ? draft.process.esgTags.join(" · ") : undefined },
   ].filter((a) => a.value);
 
@@ -921,6 +926,8 @@ function ReviewView({
   onBackToInterview,
   onEdit,
   onSave,
+  reviewAccepted,
+  onReviewAccepted,
   errorMsg,
 }: {
   draft: PreMapping;
@@ -933,6 +940,8 @@ function ReviewView({
   onBackToInterview: () => void;
   onEdit: () => void;
   onSave: () => void;
+  reviewAccepted: boolean;
+  onReviewAccepted: (accepted: boolean) => void;
   errorMsg: string | null;
 }) {
   const attrs: { label: string; value?: string }[] = [
@@ -993,6 +1002,30 @@ function ReviewView({
         </div>
 
         <MappingEvidence draft={draft} />
+        {!!draft.reviewIssues?.length && (
+          <label className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-950">
+            <input type="checkbox" checked={reviewAccepted} onChange={(event) => onReviewAccepted(event.target.checked)} className="mt-0.5" />
+            <span><strong>Estou ciente dos avisos da revisão.</strong> Só marque para salvar o rascunho mesmo com essas pendências; erros estruturais continuam bloqueados.</span>
+          </label>
+        )}
+
+        {!!draft.process.painPoints?.length && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 shadow-sm">
+            <div className="text-[12px] font-bold tracking-[.06em] text-rose-800 uppercase">Dores atuais</div>
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] text-rose-950">
+              {draft.process.painPoints.map((pain, index) => <li key={`${pain}-${index}`}>{pain}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {!!draft.process.opportunities?.length && (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 shadow-sm">
+            <div className="text-[12px] font-bold tracking-[.06em] text-emerald-800 uppercase">Oportunidades futuras</div>
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] text-emerald-950">
+              {draft.process.opportunities.map((opportunity, index) => <li key={`${opportunity}-${index}`}>{opportunity}</li>)}
+            </ul>
+          </div>
+        )}
         {draft.systems.length > 0 && (
           <div className="rounded-2xl border border-border bg-surface px-5 py-4.5 shadow-sm">
             <div className="text-[12px] font-bold tracking-[.06em] text-muted uppercase">Sistemas</div>
@@ -1075,7 +1108,7 @@ function ReviewView({
           </button>
           <button
             onClick={onSave}
-            disabled={saving || generating}
+            disabled={saving || generating || (!!draft.reviewIssues?.length && !reviewAccepted)}
             className="rounded-[10px] bg-success-strong px-4 py-3 text-[13px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
           >
             {saving ? "Salvando…" : "Salvar no repositório e abrir no modelador"}

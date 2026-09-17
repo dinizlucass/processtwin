@@ -95,7 +95,7 @@ DIRETRIZES:
 - Se houver contexto de transcrição, derive as etapas do fluxo (fase "Fluxo"), os executores e os sistemas diretamente dele, e use a entrevista para complementar/corrigir.
 - A TRANSCRIÇÃO ORIGINAL é a evidência primária. Resumos e perguntas do entrevistador podem conter inferências equivocadas; não os use para inventar informações ausentes na fonte. Dono e criticidade precisam de designação explícita. Um prazo de aprovação deve ficar em sla da tarefa, nunca como SLA ponta a ponta.
 - FLUXO: sempre exatamente um nó "start" e ao menos um nó "end". Entre eles, tarefas ("task") e decisões ("decision"). Use tantos nós quanto forem necessários para preservar TODAS as etapas e exceções narradas, sem criar etapas para atingir uma quantidade mínima. Não acrescente decisões que não tenham sido informadas.
-- Cada tarefa deve ter: um rótulo curto (verbo + objeto), e SEMPRE um executor (actor / raia). Se a entrevista não deixar claro o executor de uma etapa, use "Responsável a confirmar". Não invente cargos ou amplie o cargo informado. Reaproveite os mesmos rótulos de executor entre etapas do mesmo responsável (não crie variações como "RH" e "Analista de RH" para o mesmo ator). Defina também o tipo de atividade (activityType): "manual", "semiautomatica" ou "automatizada". Liste em "systems" os sistemas usados naquela etapa, se citados — use o nome canônico do sistema (ex.: "SAP", não "ERP SAP" nem "SAP FI").
+- Cada tarefa deve ter um rótulo curto (verbo + objeto). Só preencha actor quando a fonte identificar explicitamente o executor; se não identificar, omita o campo e mantenha a lacuna pendente — nunca crie "Responsável a confirmar" como se fosse uma raia real. Só preencha activityType quando a fonte disser explicitamente que a execução é manual, semiautomática ou automatizada; usar um sistema ou citar automação futura não comprova o tipo atual. Liste em systems apenas sistemas explicitamente associados à etapa e use nomes canônicos.
 - FIDELIDADE: preencha department e criticality quando informados, sem omitir. Não transforme tarefa manual em semiautomatica apenas por usar um sistema: exige evidência explícita de automação. Recomendações de melhoria NÃO são etapas nem automações já existentes. Preserve os caminhos de erro e retorno descritos pelo usuário.
 - RAIAS POR FUNÇÃO: quando a fonte trouxer "Nome (Função)", use a função como actor, mantendo o nome da pessoa apenas nos atributos de dono se explicitamente designado. O participante que explica uma etapa não é automaticamente seu executor. Não confunda gestor da área solicitante com gestor de Compras.
 - GRANULARIDADE AS-IS: preserve cada análise obrigatória, cotação, negociação, ajuste contratual e assinatura descrita; não esconda essas ações em uma caixa genérica como "Contratação". Represente exceções com caminhos alternativos e retornos; não as deixe apenas nas recomendações se o comportamento estiver informado. Não use uma meta artificial de 25 ou 40 atividades.
@@ -107,7 +107,7 @@ DIRETRIZES:
 - ARESTAS: conecte os nós na ordem lógica do processo. Toda aresta referencia ids de nós existentes. Todo nó deve ser alcançável desde o início e ter um caminho até um fim; retornos devem permitir prosseguir após a correção. Arestas que não saem de uma decisão têm label vazio.
 - IDs: use ids curtos e estáveis (ex.: "start", "t1", "gw1", "t2", "end").
 - RECOMENDAÇÕES: a partir das dores/riscos (fase 7) e de decisões que dependem de interpretação manual (fase 5), gere de 2 a 4 sugestões de melhoria acionáveis (ex.: "A triagem depende de leitura manual — recomenda-se um agente de IA para pré-classificar antes do analista."). Defina prioridade P1 (alto impacto, baixo esforço), P2 (alto impacto, alto esforço) ou P3 (baixo impacto).
-- ATRIBUTOS: preencha o máximo possível (nome, dono, área, criticidade, objetivo, gatilho, saídas, frequência, SLA, uso de IA, tags ESG). Deixe em branco o que a entrevista não cobriu.
+- ATRIBUTOS: preencha o máximo possível (nome, dono, área, criticidade, objetivo, gatilho, saídas, frequência, SLA, uso de IA, tags ESG). Deixe em branco o que a entrevista não cobriu. Preserve dores atuais em painPoints e oportunidades futuras em opportunities; nenhuma delas deve virar atividade AS-IS.
 
 Responda exclusivamente com o objeto JSON do pré-mapeamento, conforme o esquema fornecido.`;
 
@@ -135,6 +135,8 @@ export const GENERATION_TOOL = {
             usesAI: { type: "boolean" },
             aiDetail: { type: "string" },
             esgTags: { type: "array", items: { type: "string" } },
+            painPoints: { type: "array", items: { type: "string" }, description: "Dores atuais explicitamente informadas" },
+            opportunities: { type: "array", items: { type: "string" }, description: "Oportunidades futuras explicitamente informadas" },
           },
           required: ["name", "department", "criticality"],
         },

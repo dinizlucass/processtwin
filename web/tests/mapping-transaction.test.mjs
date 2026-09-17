@@ -7,7 +7,7 @@ import { loadTs } from "./load-ts.mjs";
 const { prepareMappingCommit } = loadTs("lib/mapping-commit.ts");
 const { flowRows, parseFlow } = loadTs("lib/flow-persistence.ts");
 export const draft = {
-  process: { name: "E2E Solicitação de acesso", owner: "E2E Responsável", department: "E2E TI", criticality: "baixa" },
+  process: { name: "E2E Solicitação de acesso", owner: "E2E Responsável", department: "E2E TI", criticality: "baixa", painPoints: ["Retrabalho"], opportunities: ["Validar automaticamente"] },
   nodes: [{ id: "s", kind: "start", label: "Início" }, { id: "t", kind: "task", label: "Validar pedido", actor: "E2E Analista", systems: ["SAP"] }, { id: "e", kind: "end", label: "Fim" }],
   edges: [{ source: "s", target: "t" }, { source: "t", target: "e" }],
   systems: [{ name: "sap", isPrimary: true }], recommendations: [{ title: "Medir SLA", priority: "P2" }],
@@ -22,6 +22,7 @@ test("atomic mapping and save functions execute against PostgreSQL", async (t) =
   await db.exec(read("migrations/003_folders.sql"));
   await db.exec(read("migrations/005_atomic_flow_save.sql"));
   await db.exec(read("migrations/006_atomic_mapping_commit.sql"));
+  await db.exec(read("migrations/007_process_pain_points.sql"));
   const conversationId = randomUUID();
   await db.query("insert into ai_conversation(id) values ($1)", [conversationId]);
   const prepared = prepareMappingCommit({ requestId: randomUUID(), conversationId, draft });
@@ -31,7 +32,8 @@ test("atomic mapping and save functions execute against PostgreSQL", async (t) =
   await t.test("one commit creates the complete aggregate and links conversation", async () => {
     saved = await commit(prepared.requestId, prepared.payload);
     assert.equal(saved.version, 1);
-    for (const table of ["process", "process_owner", "process_folder", "system_dependency", "improvement_opportunity", "mapping_commit_request"]) assert.equal(await count(table), 1, table);
+    for (const table of ["process", "process_owner", "process_folder", "system_dependency", "mapping_commit_request", "process_pain_point"]) assert.equal(await count(table), 1, table);
+    assert.equal(await count("improvement_opportunity"), 2);
     assert.equal(await count("flow_node"), prepared.payload.nodes.length);
     assert.equal(await count("flow_edge"), 2);
     const { rows } = await db.query("select status, process_id from ai_conversation where id=$1", [conversationId]);
@@ -53,7 +55,8 @@ test("atomic mapping and save functions execute against PostgreSQL", async (t) =
     failed.recommendations[0].priority = "INVALID";
     const key = randomUUID();
     await assert.rejects(commit(key, failed), /check constraint/);
-    for (const table of ["process", "process_owner", "process_folder", "system_dependency", "improvement_opportunity", "mapping_commit_request"]) assert.equal(await count(table), 1, table);
+    for (const table of ["process", "process_owner", "process_folder", "system_dependency", "mapping_commit_request", "process_pain_point"]) assert.equal(await count(table), 1, table);
+    assert.equal(await count("improvement_opportunity"), 2);
     assert.equal(await count("flow_node"), prepared.payload.nodes.length);
     assert.equal(await count("flow_edge"), 2);
     failed.recommendations[0].priority = "P1";
@@ -79,14 +82,21 @@ test("atomic mapping and save functions execute against PostgreSQL", async (t) =
 });
 
 test("edited flow keeps coordinates, lanes, attributes and additional node kinds", () => {
-  const flow = { nodes: [{ id: "sub", position: { x: 420, y: 35 }, data: { kind: "subprocess", label: "Subprocesso editado", description: "Detalhe", sla: "2h", tags: ["teste"], usesAI: true, systems: ["SAP", "sap"], activityType: "automatizada" } }], edges: [], lanes: [{ id: "lane", label: "Equipe", posY: 0, colorIndex: 0, height: 180, order: 0 }] };
+  const flow = { nodes: [
+    { id: "start", position: { x: 100, y: 35 }, data: { kind: "start", label: "Início" } },
+    { id: "sub", position: { x: 420, y: 35 }, data: { kind: "subprocess", label: "Subprocesso editado", description: "Detalhe", sla: "2h", tags: ["teste"], usesAI: true, systems: ["SAP", "sap"], activityType: "automatizada" } },
+    { id: "end", position: { x: 740, y: 35 }, data: { kind: "end", label: "Fim" } },
+  ], edges: [
+    { id: "e1", source: "start", target: "sub" },
+    { id: "e2", source: "sub", target: "end" },
+  ], lanes: [{ id: "lane", label: "Equipe", posY: 0, colorIndex: 0, height: 180, order: 0 }] };
   const { payload } = prepareMappingCommit({ requestId: randomUUID(), draft, flow });
   const row = payload.nodes.find((n) => n.node_id === "sub");
   assert.equal(row.kind, "subprocess"); assert.equal(row.pos_x, 420); assert.equal(row.uses_ai, true);
   assert.equal(row.attributes.description, "Detalhe"); assert.equal(row.attributes.sla, "2h");
   assert.equal(payload.nodes.find((n) => n.kind === "lane").attributes.height, 180);
   assert.equal(payload.systems.length, 1);
-  assert.equal(flow.nodes[0].data.systems.length, 2, "input must not be mutated");
+  assert.equal(flow.nodes[1].data.systems.length, 2, "input must not be mutated");
 });
 
 test("invalid ids, endpoints and typed attributes fail before persistence", () => {
@@ -94,4 +104,12 @@ test("invalid ids, endpoints and typed attributes fail before persistence", () =
   assert.throws(() => prepareMappingCommit({ requestId: randomUUID(), draft: { ...draft, nodes: [...draft.nodes, draft.nodes[0]] } }), /repetidos/);
   assert.throws(() => prepareMappingCommit({ requestId: randomUUID(), draft: { ...draft, edges: [{ source: "s", target: "missing" }] } }), /conexões inválidas/);
   assert.throws(() => flowRows(parseFlow({ nodes: [{ id: "x", position: { x: 0, y: 0 }, data: { kind: "task", label: "x", systems: "sap" } }], edges: [] })), /Fluxo inválido/);
+});
+
+test("commit blocks structural defects and requires explicit review acceptance", () => {
+  const reviewed = { ...draft, reviewIssues: ["Confirmar executor"] };
+  assert.throws(() => prepareMappingCommit({ requestId: randomUUID(), draft: reviewed }), /aceite explicitamente/);
+  assert.doesNotThrow(() => prepareMappingCommit({ requestId: randomUUID(), draft: reviewed, acceptReviewIssues: true }));
+  const broken = { ...draft, edges: [{ source: "s", target: "t" }] };
+  assert.throws(() => prepareMappingCommit({ requestId: randomUUID(), draft: broken, acceptReviewIssues: true }), /Corrija a estrutura/);
 });

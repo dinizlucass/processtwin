@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { INTERVIEW_SYSTEM_PROMPT, INTERVIEW_TOOL, STATIC_INTERVIEW_QUESTIONS } from "@/lib/copilot-prompt";
-import { mappingModel } from "@/lib/ai-models";
+import { mappingInterviewOptions } from "@/lib/ai-models";
 import {
   buildKnownFactsBlock,
   coverageFromFacts,
@@ -58,7 +58,9 @@ export async function POST(req: Request) {
 
   try {
     const completion = await client.chat.completions.create({
-      model: facts?.sourceTranscript ? mappingModel() : process.env.OPENAI_MODEL || "gpt-4o-mini",
+      ...(facts?.sourceTranscript
+        ? mappingInterviewOptions()
+        : { model: process.env.OPENAI_MODEL || "gpt-4o-mini" }),
       messages: [{ role: "system", content: systemContent }, ...history],
       tools: [INTERVIEW_TOOL],
       tool_choice: { type: "function", function: { name: "responder" } },

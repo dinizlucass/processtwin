@@ -11,6 +11,7 @@ function load(file) {
 }
 const { arrangeFlow, validateFlow } = load("flow-analysis.ts");
 const { buildProcessGraph } = load("process-graph.ts");
+const { inferHandoffCandidates } = load("handoffs.ts");
 const node = (id, kind, y = 0) => ({ id, type: kind, data: { kind, label: id }, position: { x: 0, y } });
 test("layout terminates for cycles and disconnected components", () => {
   const nodes = [node("a", "task"), node("b", "task"), node("c", "task")];
@@ -45,6 +46,17 @@ test("graph deduplicates system aliases and preserves directed handoffs", () => 
   assert.equal(handoffs.length, 1);
   assert.equal(handoffs[0].source, "proc:a");
   assert.equal(handoffs[0].target, "proc:b");
+});
+
+test("handoff inference requires an artifact signature, not one generic word", () => {
+  const processes = [
+    { id: "a", name: "Emitir pedido", trigger: "Requisição liberada", outputs: "Pedido de compra aprovado e enviado", systems: [] },
+    { id: "b", name: "Receber material", trigger: "Pedido de compra aprovado e enviado", outputs: "Material recebido", systems: [] },
+    { id: "c", name: "Planejar compra", trigger: "Compra solicitada", outputs: "Plano", systems: [] },
+  ];
+  const inferred = inferHandoffCandidates(processes, 20);
+  assert.ok(inferred.some((h) => h.source === "a" && h.target === "b"));
+  assert.ok(!inferred.some((h) => h.source === "a" && h.target === "c"));
 });
 
 test("validation detects closed cycles but accepts loops with an exit", () => {
