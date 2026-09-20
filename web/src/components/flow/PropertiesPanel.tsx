@@ -190,7 +190,8 @@ export function PropertiesPanel({
 
           <SectionTitle>Execução</SectionTitle>
           <Field label="Tipo de atividade">
-            <select value={data.activityType ?? "manual"} onChange={(e) => onNodeChange({ activityType: e.target.value as ActivityType })} className={inputCls}>
+            <select value={data.activityType ?? ""} onChange={(e) => onNodeChange({ activityType: (e.target.value || undefined) as ActivityType | undefined })} className={inputCls}>
+              <option value="">Não informado</option>
               {(Object.keys(activityTypeLabel) as ActivityType[]).map((t) => (
                 <option key={t} value={t}>
                   {activityTypeLabel[t]}
@@ -198,18 +199,13 @@ export function PropertiesPanel({
               ))}
             </select>
           </Field>
-          <div className="flex items-center justify-between rounded-[10px] bg-page px-3 py-2.5">
-            <div>
-              <div className="text-[12px] font-bold">Usa IA nesta etapa</div>
-              <div className="text-[10.5px] text-slate-400">Automação / triagem inteligente</div>
-            </div>
-            <button
-              onClick={() => onNodeChange({ usesAI: !data.usesAI })}
-              className={`relative h-5 w-9 flex-none rounded-full transition-colors ${data.usesAI ? "bg-accent" : "bg-slate-300"}`}
-            >
-              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${data.usesAI ? "left-[18px]" : "left-0.5"}`} />
-            </button>
-          </div>
+          <Field label="Usa IA nesta etapa">
+            <select value={data.usesAI === undefined ? "" : String(data.usesAI)} onChange={(e) => onNodeChange({ usesAI: e.target.value === "" ? undefined : e.target.value === "true" })} className={inputCls}>
+              <option value="">Não informado</option>
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select>
+          </Field>
           <TagList label="Sistemas envolvidos" values={data.systems ?? []} onChange={(v) => onNodeChange({ systems: v })} placeholder="+ sistema" />
           <TextField label="Entradas (inputs)" value={data.inputs} onChange={(v) => onNodeChange({ inputs: v })} placeholder="Dados/documentos necessários" />
           <TextField label="Saídas (outputs)" value={data.outputs} onChange={(v) => onNodeChange({ outputs: v })} placeholder="Registros/resultados gerados" />

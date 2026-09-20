@@ -196,11 +196,13 @@ export default function MapeamentoPage() {
       });
       const data = (await res.json()) as {
         reply: string;
+        error?: string;
         suggestions?: string[];
         phase: number;
         readyToGenerate: boolean;
         coverage?: Coverage;
       };
+      if (!res.ok) throw new Error(data.error || "A entrevista falhou.");
       const afterAi = [...afterUser, { role: "ai" as const, text: data.reply }];
       setMessages(afterAi);
       setSuggestions(data.suggestions ?? []);
@@ -210,12 +212,13 @@ export default function MapeamentoPage() {
       setCoverage(mergedCoverage);
       const updatedFacts = { ...facts, coverage: mergedCoverage };
       setFacts(updatedFacts);
-      setCanGenerate(data.readyToGenerate || coverageReady(mergedCoverage));
+      setCanGenerate(data.readyToGenerate);
       conversationSave.current = conversationSave.current.catch(() => {}).then(() => persistConversation(afterAi, "em_andamento", undefined, updatedFacts));
       void conversationSave.current.catch(() => setErrorMsg("Falha ao salvar a conversa. Tente enviar novamente antes de concluir o mapeamento."));
     } catch (err) {
       console.error("[mapeamento] falha no chat", err);
-      setMessages([...afterUser, { role: "ai", text: "Tive um problema para responder. Pode repetir?" }]);
+      setMessages(afterUser);
+      setErrorMsg(err instanceof Error ? err.message : "A entrevista falhou. Tente novamente.");
     } finally {
       setLoadingChat(false);
     }

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTs } from "./load-ts.mjs";
 
-const { normalizeRequirements, reconcileTraceability, generatedBranchIssues } = loadTs("lib/mapping-evidence.ts");
+const { normalizeRequirements, reconcileTraceability, generatedBranchIssues, removeUnsupportedClaims } = loadTs("lib/mapping-evidence.ts");
 const { buildKnownFactsBlock, coverageFromFacts } = loadTs("lib/phases.ts");
 const { sanitizePreMapping, toReactFlow } = loadTs("lib/premapping.ts");
 const { preMappingToEditorFlow, editorFlowToPreMapping } = loadTs("lib/draft-flow.ts");
@@ -16,6 +16,18 @@ test("evidence must quote the source; duplicate and invented excerpts are reject
     { text: "Carta", quote: "Exige carta de exclusividade." },
   ], source);
   assert.deepEqual(requirements.map((item) => item.id), ["r1", "r2"]);
+});
+
+test("unknown AI and primary system cannot become asserted attributes", () => {
+  const draft = {
+    process: { usesAI: false, painPoints: ["Executor não informado", "Retrabalho nas devoluções"], opportunities: ["Automatizar aprovação"] },
+    systems: [{ name: "SAP", isPrimary: true }],
+  };
+  removeUnsupportedClaims(draft, "Há retrabalho nas devoluções. Não sei se usa IA. SAP registra a ocorrência.");
+  assert.equal(draft.process.usesAI, undefined);
+  assert.equal(draft.systems[0].isPrimary, undefined);
+  assert.deepEqual(draft.process.painPoints, ["Retrabalho nas devoluções"]);
+  assert.deepEqual(draft.process.opportunities, []);
 });
 
 test("omitted requirements and nonexistent node references remain pending", () => {

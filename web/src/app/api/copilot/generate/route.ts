@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { GENERATION_SYSTEM_PROMPT, GENERATION_TOOL } from "@/lib/copilot-prompt";
 import { sanitizePreMapping, type PreMapping } from "@/lib/premapping";
 import { buildCoverageDigest, buildKnownFactsBlock, type Coverage, type ExtractedFacts } from "@/lib/phases";
-import { generatedBranchIssues, MAPPING_REVIEW_PROMPT, reconcileTraceability } from "@/lib/mapping-evidence";
+import { generatedBranchIssues, MAPPING_REVIEW_PROMPT, reconcileTraceability, removeUnsupportedClaims } from "@/lib/mapping-evidence";
 import { validateFlow } from "@/lib/flow-analysis";
 import { mappingOptions, mappingResponseOptions } from "@/lib/ai-models";
 
@@ -70,7 +70,8 @@ export async function POST(req: Request) {
 
       if (!completion.output_text || completion.status !== "completed") throw new Error("Incomplete generation");
       const raw = JSON.parse(completion.output_text) as Partial<PreMapping>;
-      const draft = sanitizePreMapping(raw);
+      const source = [facts?.sourceTranscript, ...messages.filter((message) => message.role === "user").map((message) => message.text)].filter(Boolean).join("\n");
+      const draft = removeUnsupportedClaims(sanitizePreMapping(raw), source);
       lastDraft = draft;
       const requirements = facts?.requirements ?? previousDraft?.requirements ?? [];
       draft.requirements = requirements;

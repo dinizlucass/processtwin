@@ -79,7 +79,7 @@ export async function POST(req: Request) {
   }
 
   const criticality = answers.criticality ? parseCriticality(answers.criticality) : null;
-  const { usesAI, detail } = answers.ai ? parseAI(answers.ai) : { usesAI: false, detail: undefined };
+  const { usesAI, detail } = answers.ai ? parseAI(answers.ai) : { usesAI: null, detail: undefined };
   const esgTags = answers.esg
     ? answers.esg
         .split(/·|,/)

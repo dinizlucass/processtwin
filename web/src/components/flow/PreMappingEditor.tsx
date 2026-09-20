@@ -88,7 +88,7 @@ function Inner({ preMapping, onChange }: { preMapping: PreMapping; onChange: (pm
     const id = newId();
     const node: DraftNode =
       kind === "task"
-        ? { id, kind: "task", label: "Nova etapa", activityType: "manual" }
+        ? { id, kind: "task", label: "Nova etapa" }
         : { id, kind: "decision", label: "Nova decisão" };
     onChange({ ...preMapping, nodes: [...preMapping.nodes, node] });
     setSelNodeId(id);
@@ -149,10 +149,11 @@ function Inner({ preMapping, onChange }: { preMapping: PreMapping; onChange: (pm
             <label className="mb-2 flex flex-col gap-1">
               <span className="text-[10.5px] font-semibold text-slate-500">Tipo de atividade</span>
               <select
-                value={selNode.activityType || "manual"}
-                onChange={(e) => patchNode(selNode.id, { activityType: e.target.value as ActivityType })}
+                value={selNode.activityType || ""}
+                onChange={(e) => patchNode(selNode.id, { activityType: (e.target.value || undefined) as ActivityType | undefined })}
                 className="rounded-[7px] border border-border bg-page px-2 py-1.5 text-[12px] outline-none focus:border-indigo-400"
               >
+                <option value="">Não informado</option>
                 {ACTIVITY_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}

@@ -1,11 +1,12 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { INTERVIEW_SYSTEM_PROMPT, INTERVIEW_TOOL, STATIC_INTERVIEW_QUESTIONS } from "@/lib/copilot-prompt";
+import { INTERVIEW_SYSTEM_PROMPT, INTERVIEW_TOOL } from "@/lib/copilot-prompt";
 import { mappingInterviewOptions } from "@/lib/ai-models";
 import {
   buildKnownFactsBlock,
   coverageFromFacts,
   coverageReady,
+  mergeCoverage,
   normalizeCoverage,
   type ExtractedFacts,
 } from "@/lib/phases";
@@ -30,17 +31,7 @@ export async function POST(req: Request) {
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    // fallback estático: percorre um roteiro reduzido
-    const q = STATIC_INTERVIEW_QUESTIONS[Math.min(userTurns, STATIC_INTERVIEW_QUESTIONS.length - 1)];
-    const ready = userTurns >= 3 || coverageReady(seededCoverage);
-    return Response.json({
-      reply: q.mensagem,
-      suggestions: q.sugestao ? [q.sugestao] : [],
-      phase: Math.min(userTurns + 1, 7),
-      readyToGenerate: ready,
-      coverage: seededCoverage,
-      source: "static" as const,
-    });
+    return Response.json({ error: "OPENAI_API_KEY não configurada. A entrevista com IA está indisponível." }, { status: 503 });
   }
 
   const client = new OpenAI({ apiKey });
@@ -58,9 +49,7 @@ export async function POST(req: Request) {
 
   try {
     const completion = await client.chat.completions.create({
-      ...(facts?.sourceTranscript
-        ? mappingInterviewOptions()
-        : { model: process.env.OPENAI_MODEL || "gpt-4o-mini" }),
+      ...mappingInterviewOptions(Boolean(facts?.sourceTranscript)),
       messages: [{ role: "system", content: systemContent }, ...history],
       tools: [INTERVIEW_TOOL],
       tool_choice: { type: "function", function: { name: "responder" } },
@@ -73,40 +62,25 @@ export async function POST(req: Request) {
         fase_atual?: number;
         sugestoes?: unknown;
         pronto_para_gerar?: boolean;
+        pendencia_critica?: string;
         cobertura?: unknown;
       };
-      const coverage = normalizeCoverage(parsed.cobertura);
-      const suggestions = Array.isArray(parsed.sugestoes)
-        ? parsed.sugestoes.filter((s): s is string => typeof s === "string" && s.trim().length > 0).slice(0, 3)
-        : [];
+      const coverage = mergeCoverage(seededCoverage, normalizeCoverage(parsed.cobertura));
+      const ready = (Boolean(parsed.pronto_para_gerar) || coverageReady(coverage)) && !parsed.pendencia_critica?.trim();
       return Response.json({
-        reply: parsed.mensagem,
-        suggestions,
+        reply: ready
+          ? "Já tenho o suficiente para um primeiro rascunho. As lacunas ficarão sinalizadas para revisão; você pode gerar agora ou acrescentar mais detalhes."
+          : parsed.mensagem,
+        suggestions: ready ? [] : ["Não sei informar"],
         phase: parsed.fase_atual ?? Math.min(userTurns + 1, 7),
-        readyToGenerate: Boolean(parsed.pronto_para_gerar) || coverageReady(coverage),
+        readyToGenerate: ready,
         coverage,
         source: "openai" as const,
       });
     }
-    // sem tool call: usa o texto direto
-    return Response.json({
-      reply: completion.choices[0]?.message.content ?? "Pode me contar mais sobre o processo?",
-      suggestions: [],
-      phase: Math.min(userTurns + 1, 7),
-      readyToGenerate: coverageReady(seededCoverage) || userTurns >= 5,
-      coverage: seededCoverage,
-      source: "openai" as const,
-    });
+    throw new Error("A entrevista não retornou a estrutura esperada.");
   } catch (err) {
     console.error("[copilot] falha na entrevista", err);
-    const q = STATIC_INTERVIEW_QUESTIONS[Math.min(userTurns, STATIC_INTERVIEW_QUESTIONS.length - 1)];
-    return Response.json({
-      reply: q.mensagem,
-      suggestions: q.sugestao ? [q.sugestao] : [],
-      phase: Math.min(userTurns + 1, 7),
-      readyToGenerate: userTurns >= 3 || coverageReady(seededCoverage),
-      coverage: seededCoverage,
-      source: "fallback" as const,
-    });
+    return Response.json({ error: "A entrevista com IA falhou. Tente novamente; suas respostas foram preservadas." }, { status: 502 });
   }
 }

@@ -97,7 +97,7 @@ export const NODE_SIZE: Record<NodeKind, { width: number; height: number }> = {
 export function defaultDataForKind(kind: NodeKind): FlowNodeData {
   const base: FlowNodeData = { kind, label: NODE_META[kind].defaultLabel };
   if (kind === "task" || kind === "subprocess") {
-    return { ...base, activityType: "manual", usesAI: false, systems: [], tags: [], alertFrequency: "Sem alerta" };
+    return { ...base, systems: [], tags: [], alertFrequency: "Sem alerta" };
   }
   return base;
 }

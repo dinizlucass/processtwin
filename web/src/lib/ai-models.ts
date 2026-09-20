@@ -14,7 +14,7 @@ export function mappingResponseOptions() {
 }
 
 /** Chat Completions rejects function tools with Luna's default reasoning effort. */
-export function mappingInterviewOptions() {
-  const model = mappingModel();
+export function mappingInterviewOptions(hasTranscript = true) {
+  const model = hasTranscript ? mappingModel() : process.env.OPENAI_MODEL || "gpt-4o-mini";
   return { model, ...(model === "gpt-5.6-luna" ? { reasoning_effort: "none" as const } : {}) };
 }
