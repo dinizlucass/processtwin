@@ -14,7 +14,6 @@ const SUGGESTIONS = [
 ];
 
 export default function ProcessAssistantPage() {
-  const [key, setKey] = useState("");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
@@ -31,7 +30,7 @@ export default function ProcessAssistantPage() {
     try {
       const res = await fetch("/api/process-assistant", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-process-assistant-key": key },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, history: prior }),
       });
       const data = await res.json();
@@ -52,14 +51,8 @@ export default function ProcessAssistantPage() {
         <p className="mt-1 text-[13px] text-muted">Respostas com fontes sobre processos publicados, atividades, relações confirmadas e KPIs de mapeamento.</p>
       </div>
 
-      <div className="rounded-[14px] border border-border bg-surface p-4 shadow-sm">
-        <label htmlFor="assistant-key" className="text-[12px] font-semibold">Chave de acesso ao piloto</label>
-        <input id="assistant-key" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Informe a chave fornecida pelo administrador" className="mt-2 w-full rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-accent" />
-        <p className="mt-2 text-[11px] text-muted">A chave fica apenas na memória desta página. Este piloto não substitui login e permissões individuais.</p>
-      </div>
-
       {messages.length === 0 && <div className="grid gap-2 sm:grid-cols-2">
-        {SUGGESTIONS.map((s) => <button key={s} onClick={() => ask(s)} disabled={!key || busy} className="rounded-xl border border-border bg-surface px-4 py-3 text-left text-[13px] hover:border-accent disabled:opacity-50">{s}</button>)}
+        {SUGGESTIONS.map((s) => <button key={s} onClick={() => ask(s)} disabled={busy} className="rounded-xl border border-border bg-surface px-4 py-3 text-left text-[13px] hover:border-accent disabled:opacity-50">{s}</button>)}
       </div>}
 
       <div aria-live="polite" className="flex flex-col gap-3">
@@ -80,7 +73,7 @@ export default function ProcessAssistantPage() {
       {error && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-[12px] text-red-700">{error}</div>}
       <form onSubmit={(e) => { e.preventDefault(); ask(); }} className="flex gap-2">
         <input aria-label="Pergunta sobre processos" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1000} placeholder="Pergunte sobre processos, responsáveis, sistemas ou KPIs..." className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-4 py-3 text-[13px] outline-none focus:border-accent" />
-        <button type="submit" disabled={!draft.trim() || !key || busy} className="rounded-xl bg-accent px-5 py-3 text-[13px] font-semibold text-white hover:bg-accent-hover disabled:opacity-50">Perguntar</button>
+        <button type="submit" disabled={!draft.trim() || busy} className="rounded-xl bg-accent px-5 py-3 text-[13px] font-semibold text-white hover:bg-accent-hover disabled:opacity-50">Perguntar</button>
       </form>
       <p className="text-[11px] text-muted">Indicadores operacionais reais, como tempo médio ou volume executado, dependem de integração com dados de execução.</p>
     </div>

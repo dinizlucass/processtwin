@@ -1,8 +1,6 @@
-// Run against a local or staging server with PROCESS_ASSISTANT_ACCESS_KEY set.
+// Run against a local or staging server.
 // Does not print process data or secrets.
 const base = process.env.PROCESS_ASSISTANT_BASE_URL || "http://localhost:3000";
-const key = process.env.PROCESS_ASSISTANT_ACCESS_KEY;
-if (!key) throw new Error("Defina PROCESS_ASSISTANT_ACCESS_KEY para rodar a avaliação.");
 
 const cases = [
   { question: "Quantos processos estão mapeados?", expect: /\d+ processos mapeados de \d+/, source: true },
@@ -21,7 +19,7 @@ let passed = 0;
 for (const entry of cases) {
   const response = await fetch(`${base}/api/process-assistant`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-process-assistant-key": key },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question: entry.question }),
   });
   const body = await response.json();
@@ -32,9 +30,5 @@ for (const entry of cases) {
   if (valid) passed++;
 }
 
-const unauthorized = await fetch(`${base}/api/process-assistant`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: "Quantos processos?" }) });
-const authPassed = unauthorized.status === 401;
-console.log(`${authPassed ? "PASS" : "FAIL"} bloqueio sem chave (${unauthorized.status})`);
-if (authPassed) passed++;
-console.log(`${passed}/${cases.length + 1} verificações passaram`);
-if (passed !== cases.length + 1) process.exitCode = 1;
+console.log(`${passed}/${cases.length} verificações passaram`);
+if (passed !== cases.length) process.exitCode = 1;

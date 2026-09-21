@@ -7,9 +7,8 @@ const require = createRequire(import.meta.url);
 require("@next/env").loadEnvConfig(process.cwd());
 
 const base = process.env.PROCESS_ASSISTANT_BASE_URL || "http://localhost:3000";
-const key = process.env.PROCESS_ASSISTANT_ACCESS_KEY;
-if (!key || !process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("Defina PROCESS_ASSISTANT_ACCESS_KEY, SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.");
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error("Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.");
 }
 const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -53,7 +52,7 @@ async function ask(question, history = []) {
   const begin = performance.now();
   const res = await fetch(`${base}/api/process-assistant`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-process-assistant-key": key },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, history }),
   });
   const body = await res.json();

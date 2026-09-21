@@ -30,7 +30,6 @@ npm run dev
 | `OPENAI_MODEL` | opcional, default `gpt-4o-mini` |
 | `OPENAI_MAPPING_MODEL` | extração, entrevista com transcrição, geração e revisão; default `gpt-5.4-mini` |
 | `OPENAI_ASSISTANT_MODEL` | assistente de processos; opcional, usa `OPENAI_MODEL` quando ausente |
-| `PROCESS_ASSISTANT_ACCESS_KEY` | chave longa e aleatória obrigatória para liberar o piloto do assistente |
 | `PROCESS_ASSISTANT_SCOPE` | `published` (padrão) ou `all` (inclui rascunhos/em revisão, identificados como provisórios) |
 | `SUPABASE_URL` | Supabase → Project Settings → Data API (só a URL base, sem `/rest/v1`) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API Keys → `service_role` (secreta) |
@@ -45,9 +44,9 @@ O app fica em `web/`, não na raiz do repo — em **Project Settings → General
 
 Em `/assistente`, a IA responde perguntas sobre o catálogo com links para os processos. KPIs de cadastro/mapeamento, listas de sistemas e relações confirmadas são calculados diretamente do banco; perguntas narrativas usam o modelo com evidências limitadas e citações validadas. Dados de execução real ainda não existem no repositório, então tempo médio, volume real e retrabalho operacional não são estimados. O assistente é somente leitura.
 
-Configure `PROCESS_ASSISTANT_ACCESS_KEY` no servidor e forneça-a apenas aos participantes do piloto. A chave compartilhada **não substitui autenticação e autorização por usuário**; não libere o site publicamente com processos internos. Se quiser consultar também os processos ainda não publicados, defina `PROCESS_ASSISTANT_SCOPE=all`, sabendo que as respostas incluirão dados provisórios. Para usar Luna sem alterar as entrevistas, defina `OPENAI_ASSISTANT_MODEL=gpt-5.6-luna`; `OPENAI_MODEL` continua sendo o fallback geral.
+O assistente está disponível sem chave de acesso ou login. Qualquer visitante pode consultar os processos no escopo configurado e gerar consumo na API da OpenAI; não publique dados internos sensíveis nessa configuração. O padrão é consultar somente processos publicados. Para incluir rascunhos/em revisão, defina `PROCESS_ASSISTANT_SCOPE=all`, sabendo que as respostas incluirão dados provisórios. Para usar Luna sem alterar as entrevistas, defina `OPENAI_ASSISTANT_MODEL=gpt-5.6-luna`; `OPENAI_MODEL` continua sendo o fallback geral.
 
-Para repetir a avaliação contra uma instância em execução: `PROCESS_ASSISTANT_ACCESS_KEY=... npm run test:assistant-live` (em PowerShell, use `$env:PROCESS_ASSISTANT_ACCESS_KEY=...`). `npm run test:assistant-deep` compara os KPIs e listas com o Supabase e repete perguntas de fluxo; carregue as variáveis do mesmo ambiente da aplicação. Defina `PROCESS_ASSISTANT_BASE_URL` se a instância não estiver em `http://localhost:3000`. A migração `web/supabase/migrations/007_process_pain_points.sql` precisa estar aplicada para o assistente consultar dores; se faltar, ele sinaliza a lacuna nas respostas.
+Para repetir a avaliação contra uma instância em execução: `npm run test:assistant-live`. `npm run test:assistant-deep` compara os KPIs e listas com o Supabase e repete perguntas de fluxo; carregue as variáveis do mesmo ambiente da aplicação. Defina `PROCESS_ASSISTANT_BASE_URL` se a instância não estiver em `http://localhost:3000`. A migração `web/supabase/migrations/007_process_pain_points.sql` precisa estar aplicada para o assistente consultar dores; se faltar, ele sinaliza a lacuna nas respostas.
 
 ## Estrutura do repositório
 
