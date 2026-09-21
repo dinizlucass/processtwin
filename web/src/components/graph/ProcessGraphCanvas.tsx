@@ -61,9 +61,10 @@ export function ProcessGraphCanvas({
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   const [showFolders, setShowFolders] = useState(foldersEnabled);
-  const [showDepartments, setShowDepartments] = useState(true);
+  const [showDepartments, setShowDepartments] = useState(false);
   const [showSystems, setShowSystems] = useState(false);
-  const [showHandoffs, setShowHandoffs] = useState(true);
+  const [showHandoffs, setShowHandoffs] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [colorBy, setColorBy] = useState<"folder" | "criticality">("folder");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -107,20 +108,24 @@ export function ProcessGraphCanvas({
     [showFolders, showDepartments, showSystems, showHandoffs, colorBy],
   );
 
-  const graphData = useMemo(
-    () => buildProcessGraph(processes, folders, systemsByProcess, options, handoffs),
-    [processes, folders, systemsByProcess, options, handoffs],
-  );
+  const graphData = useMemo(() => {
+    const data = buildProcessGraph(processes, folders, systemsByProcess, options, handoffs);
+    if (showHandoffs && !showFolders && !showDepartments && !showSystems && data.links.length) {
+      const connected = new Set(data.links.flatMap((link) => [endId(link.source), endId(link.target)]));
+      return { ...data, nodes: data.nodes.filter((node) => connected.has(node.id)) };
+    }
+    return data;
+  }, [processes, folders, systemsByProcess, options, handoffs, showHandoffs, showFolders, showDepartments, showSystems]);
 
   useEffect(() => {
     if (!ForceGraph || !fgRef.current || graphData.nodes.length === 0) return;
     const timer = window.setTimeout(() => {
-      fgRef.current?.d3Force("charge")?.strength?.(-260);
-      fgRef.current?.d3Force("link")?.distance?.((link: GraphLink) => link.kind === "handoff" ? 150 : 105);
+      fgRef.current?.d3Force("charge")?.strength?.(size.w < 640 ? -65 : -180);
+      fgRef.current?.d3Force("link")?.distance?.((link: GraphLink) => link.kind === "handoff" ? (size.w < 640 ? 75 : 130) : (size.w < 640 ? 55 : 90));
       fgRef.current?.d3ReheatSimulation();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [ForceGraph, graphData]);
+  }, [ForceGraph, graphData, size.w]);
 
   const adjacency = useMemo(() => {
     const m = new Map<string, Set<string>>();
@@ -169,7 +174,7 @@ export function ProcessGraphCanvas({
     fittedRef.current = "";
   }, [fitKey]);
 
-  const modeProcessos = showFolders && showDepartments && !showSystems;
+  const modeProcessos = !showSystems;
   const modeOcpm = showSystems && !showDepartments;
 
   // ao digitar Enter, centraliza no 1º resultado (zoom); realce já é reativo
@@ -288,7 +293,7 @@ export function ProcessGraphCanvas({
                 ctx.stroke();
               }
 
-              const showLabel = n.type !== "process" || activeId === n.id || Boolean(searchMatches?.has(n.id)) || scale > 2.25;
+              const showLabel = activeId === n.id || Boolean(searchMatches?.has(n.id)) || scale > (n.type === "process" ? 2.25 : size.w < 640 ? 1.8 : 0.95);
               if (showLabel) {
                 const fs = Math.max(11 / scale, 2.2);
                 ctx.font = `${n.type === "process" ? 600 : 700} ${fs}px Segoe UI, system-ui, sans-serif`;
@@ -351,25 +356,26 @@ export function ProcessGraphCanvas({
 
         {/* TOOLBAR flutuante */}
         <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start gap-2 p-4">
-          <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/95 px-2.5 py-2 shadow-md backdrop-blur-sm">
+          <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/95 px-2.5 py-2 shadow-md backdrop-blur-sm max-sm:w-full">
             <button className="rounded-lg border border-border px-2 py-1.5 text-xs" onClick={() => fgRef.current?.zoomToFit(400, 60)}>Enquadrar</button>
             <button className="rounded-lg border border-border px-2 py-1.5 text-xs" onClick={() => { setShowFolders(false); setShowDepartments(false); setShowSystems(false); setShowHandoffs(true); }}>Conexões diretas</button>
+            <button className="hidden rounded-lg border border-border px-2 py-1.5 text-xs max-sm:block" onClick={() => setMobileFiltersOpen((open) => !open)} aria-expanded={mobileFiltersOpen}>Filtros</button>
             <input
               aria-label="Buscar no grafo"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && focusSearch()}
               placeholder="Buscar processo, sistema…"
-              className="h-8 w-52 rounded-[9px] border border-border bg-page px-3 text-[12.5px] outline-none focus:border-accent-2"
+              className="h-8 w-52 rounded-[9px] border border-border bg-page px-3 text-[12.5px] outline-none focus:border-accent-2 max-sm:w-full"
             />
 
-            <div className="h-6 w-px bg-border" />
+            <div className="h-6 w-px bg-border max-sm:hidden" />
 
-            <div className="flex items-center gap-1 rounded-[9px] border border-border p-0.5">
+            <div className={`items-center gap-1 rounded-[9px] border border-border p-0.5 sm:flex ${mobileFiltersOpen ? "flex" : "hidden"}`}>
               <button
                 onClick={() => {
                   setShowFolders(foldersEnabled);
-                  setShowDepartments(true);
+                  setShowDepartments(false);
                   setShowSystems(false);
                 }}
                 className={`rounded-[7px] px-2.5 py-1 text-[11.5px] font-semibold ${modeProcessos ? "bg-accent-soft text-accent-hover" : "text-slate-500 hover:bg-page"}`}
@@ -389,9 +395,9 @@ export function ProcessGraphCanvas({
               </button>
             </div>
 
-            <div className="h-6 w-px bg-border" />
+            <div className="h-6 w-px bg-border max-sm:hidden" />
 
-            <div className="flex items-center gap-2 text-[11.5px] font-semibold text-slate-600">
+            <div className={`flex-wrap items-center gap-2 text-[11.5px] font-semibold text-slate-600 sm:flex ${mobileFiltersOpen ? "flex" : "hidden"}`}>
               <Toggle label="Pastas" checked={showFolders} disabled={!foldersEnabled} onChange={setShowFolders} dot="#6366f1" />
               <Toggle label="Áreas" checked={showDepartments} onChange={setShowDepartments} dot="#6366f1" />
               <Toggle label="Sistemas" checked={showSystems} onChange={setShowSystems} dot="#0891b2" />
@@ -404,9 +410,9 @@ export function ProcessGraphCanvas({
               />
             </div>
 
-            <div className="h-6 w-px bg-border" />
+            <div className="h-6 w-px bg-border max-sm:hidden" />
 
-            <div className="flex items-center gap-1.5">
+            <div className={`items-center gap-1.5 sm:flex ${mobileFiltersOpen ? "flex" : "hidden"}`}>
               <span className="text-[11px] font-semibold text-muted">Cor:</span>
               <select
                 value={colorBy}

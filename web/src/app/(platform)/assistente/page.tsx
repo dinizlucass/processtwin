@@ -1,23 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Source = { id: string; name: string; href: string; version: number | null };
 type Message = { role: "user" | "assistant"; content: string; sources?: Source[]; asOf?: string; scope?: string };
 
 const SUGGESTIONS = [
-  "Quantos processos publicados estão mapeados?",
-  "Quais processos críticos estão no repositório?",
-  "Quais processos usam SAP?",
-  "Quais processos se relacionam entre si?",
+  { title: "Panorama", question: "Quantos processos publicados estão mapeados?" },
+  { title: "Prioridades", question: "Quais processos críticos estão no repositório?" },
+  { title: "Sistemas", question: "Quais processos usam SAP?" },
+  { title: "Conexões", question: "Quais processos se relacionam entre si?" },
 ];
+
+function SparkleIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12 3 1.8 6.2L20 11l-6.2 1.8L12 19l-1.8-6.2L4 11l6.2-1.8L12 3Z"/><path d="m19 17 .7 2.3L22 20l-2.3.7L19 23l-.7-2.3L16 20l2.3-.7L19 17Z"/></svg>;
+}
 
 export default function ProcessAssistantPage() {
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { if (messages.length > 0) bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, busy]);
 
   async function ask(value = draft) {
     const question = value.trim();
@@ -44,38 +52,58 @@ export default function ProcessAssistantPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[980px] flex-col gap-5 px-8 py-7">
-      <div>
-        <div className="text-[11px] font-bold uppercase tracking-[.13em] text-accent">IA de processos · piloto</div>
-        <h1 className="mt-1 text-[23px] font-bold tracking-tight">Pergunte aos processos</h1>
-        <p className="mt-1 text-[13px] text-muted">Respostas com fontes sobre processos publicados, atividades, relações confirmadas e KPIs de mapeamento.</p>
+    <div className="flex h-full min-h-0 flex-col bg-[#f8faff]">
+      <header className="shrink-0 border-b border-slate-200/80 bg-white/90 px-5 py-4 sm:px-8">
+        <div className="mx-auto flex max-w-[860px] items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-200"><SparkleIcon /></div>
+            <div className="min-w-0">
+              <h1 className="truncate text-[16px] font-bold tracking-tight text-slate-900">Assistente de processos</h1>
+              <p className="truncate text-[11px] text-slate-500">Respostas fundamentadas no repositório</p>
+            </div>
+          </div>
+          {messages.length > 0 && <button type="button" disabled={busy} onClick={() => { setMessages([]); setDraft(""); setError(""); inputRef.current?.focus(); }} className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">Nova conversa</button>}
+        </div>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8" aria-live="polite">
+        <div className="mx-auto flex min-h-full max-w-[860px] flex-col">
+          {messages.length === 0 ? <div className="my-auto py-8 sm:py-14">
+            <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-[20px] bg-indigo-600 text-white shadow-lg shadow-indigo-200"><SparkleIcon className="h-7 w-7" /></div>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[.16em] text-indigo-600">Explore seu repositório</div>
+            <h2 className="max-w-[620px] text-[30px] font-bold leading-[1.15] tracking-[-.035em] text-slate-950 sm:text-[38px]">O que você quer saber sobre seus processos?</h2>
+            <p className="mt-4 max-w-[560px] text-[14px] leading-6 text-slate-600">Pergunte sobre fluxos, responsáveis, sistemas, conexões e indicadores de mapeamento. Cada resposta mostra de onde veio a informação.</p>
+            <div className="mt-9 grid gap-3 sm:grid-cols-2">
+              {SUGGESTIONS.map((s) => <button key={s.title} type="button" onClick={() => ask(s.question)} disabled={busy} className="group flex min-h-24 flex-col items-start justify-center rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-50"><span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600">{s.title}</span><span className="mt-2 text-[13px] font-medium leading-5 text-slate-800">{s.question}</span></button>)}
+            </div>
+          </div> : <div className="flex flex-col gap-7 pb-5">
+            {messages.map((m, i) => <div key={i} className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              {m.role === "assistant" && <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white"><SparkleIcon className="h-4 w-4" /></div>}
+              <div className={m.role === "user" ? "max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-3 text-[13px] leading-6 text-white shadow-sm sm:max-w-[72%]" : "min-w-0 max-w-[760px] flex-1 pt-1"}>
+                {m.role === "assistant" && <div className="mb-2 text-[12px] font-bold text-slate-900">Assistente</div>}
+                <div className={`whitespace-pre-wrap break-words text-[13px] leading-6 ${m.role === "assistant" ? "text-slate-800" : "text-white"}`}>{m.content}</div>
+                {m.role === "assistant" && <>
+                  {!!m.sources?.length && <div className="mt-4 flex flex-wrap items-center gap-2"><span className="mr-1 text-[11px] font-medium text-slate-500">Fontes</span>{m.sources.map((s) => <Link key={s.id} href={s.href} className="rounded-full border border-indigo-100 bg-white px-3 py-1 text-[11px] font-medium text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">{s.name}{s.version != null ? ` · v${s.version}` : ""}</Link>)}</div>}
+                  {(m.scope || m.asOf) && <div className="mt-3 text-[10px] leading-4 text-slate-500">{m.scope}{m.asOf ? ` · ${new Date(m.asOf).toLocaleString("pt-BR")}` : ""}</div>}
+                </>}
+              </div>
+            </div>)}
+            {busy && <div className="flex items-center gap-3 text-[12px] text-slate-500"><div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white"><SparkleIcon className="h-4 w-4" /></div><span>Consultando processos<span className="animate-pulse">...</span></span></div>}
+          </div>}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
-      {messages.length === 0 && <div className="grid gap-2 sm:grid-cols-2">
-        {SUGGESTIONS.map((s) => <button key={s} onClick={() => ask(s)} disabled={busy} className="rounded-xl border border-border bg-surface px-4 py-3 text-left text-[13px] hover:border-accent disabled:opacity-50">{s}</button>)}
-      </div>}
-
-      <div aria-live="polite" className="flex flex-col gap-3">
-        {messages.map((m, i) => <div key={i} className={`rounded-[14px] border p-4 ${m.role === "user" ? "ml-10 border-accent/20 bg-accent/5" : "mr-5 border-border bg-surface"}`}>
-          <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-muted">{m.role === "user" ? "Você" : "Assistente"}</div>
-          <div className="whitespace-pre-wrap text-[13px] leading-6 text-slate-800">{m.content}</div>
-          {m.role === "assistant" && <>
-            {!!m.sources?.length && <div className="mt-3 border-t border-border-soft pt-3">
-              <div className="text-[11px] font-bold text-muted">Fontes consultadas</div>
-              <div className="mt-1 flex flex-wrap gap-2">{m.sources.map((s) => <Link key={s.id} href={s.href} className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-accent hover:underline">[{s.id}] {s.name}{s.version != null ? ` · v${s.version}` : ""}</Link>)}</div>
-            </div>}
-            <div className="mt-2 text-[10px] text-muted">{m.scope}{m.asOf ? ` · Consultado em ${new Date(m.asOf).toLocaleString("pt-BR")}` : ""}</div>
-          </>}
-        </div>)}
-        {busy && <div className="text-[12px] text-muted">Consultando processos...</div>}
+      <div className="shrink-0 border-t border-slate-200/80 bg-white px-4 pb-4 pt-3 sm:px-8">
+        <div className="mx-auto max-w-[860px]">
+          {error && <div role="alert" className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-[12px] text-red-700">{error}</div>}
+          <form onSubmit={(e) => { e.preventDefault(); ask(); }} className="flex items-end gap-2 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition-colors focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100">
+            <textarea ref={inputRef} aria-label="Pergunta sobre processos" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); ask(); } }} rows={2} maxLength={1000} placeholder="Pergunte sobre seus processos..." className="max-h-36 min-h-12 min-w-0 flex-1 resize-none bg-transparent px-3 py-2 text-[13px] leading-5 text-slate-900 outline-none placeholder:text-slate-400" />
+            <button type="submit" aria-label="Enviar pergunta" disabled={!draft.trim() || busy} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"><svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v14" /></svg></button>
+          </form>
+          <p className="mt-2 text-center text-[10px] leading-4 text-slate-500">Baseado nos processos publicados. Indicadores de execução real dependem de integração com os sistemas.</p>
+        </div>
       </div>
-
-      {error && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-[12px] text-red-700">{error}</div>}
-      <form onSubmit={(e) => { e.preventDefault(); ask(); }} className="flex gap-2">
-        <input aria-label="Pergunta sobre processos" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={1000} placeholder="Pergunte sobre processos, responsáveis, sistemas ou KPIs..." className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-4 py-3 text-[13px] outline-none focus:border-accent" />
-        <button type="submit" disabled={!draft.trim() || busy} className="rounded-xl bg-accent px-5 py-3 text-[13px] font-semibold text-white hover:bg-accent-hover disabled:opacity-50">Perguntar</button>
-      </form>
-      <p className="text-[11px] text-muted">Indicadores operacionais reais, como tempo médio ou volume executado, dependem de integração com dados de execução.</p>
     </div>
   );
 }

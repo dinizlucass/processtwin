@@ -31,8 +31,8 @@ export default async function ConversasPage() {
   const conversations = await listConversations();
 
   return (
-    <div className="flex max-w-[1080px] flex-col gap-5 px-8 py-7">
-      <div className="flex items-end justify-between gap-4">
+    <div className="mx-auto flex max-w-[1080px] flex-col gap-5 px-4 py-6 sm:px-8 sm:py-7">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="m-0 text-[21px] font-bold tracking-tight">Histórico de Conversas</h1>
           <p className="mt-1 text-[13px] text-muted">
@@ -53,9 +53,9 @@ export default async function ConversasPage() {
           return (
             <div
               key={c.id}
-              className="group flex items-center gap-4 rounded-[14px] border border-border bg-surface px-5 py-4 shadow-sm transition-colors hover:border-accent-soft-border hover:bg-accent-soft/40"
+              className="group flex flex-wrap items-center gap-3 rounded-[14px] border border-border bg-surface px-4 py-4 shadow-sm transition-colors hover:border-accent-soft-border hover:bg-accent-soft/40 sm:gap-4 sm:px-5"
             >
-              <Link href={`/conversas/${c.id}`} className="flex min-w-0 flex-1 items-center gap-4">
+              <Link href={`/conversas/${c.id}`} className="flex min-w-[190px] flex-1 items-center gap-3 sm:gap-4">
                 <div className="flex h-10 w-10 flex-none items-center justify-center rounded-[11px] bg-gradient-to-br from-accent-2 to-accent">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -63,19 +63,13 @@ export default async function ConversasPage() {
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-[14px] font-bold text-slate-800">{c.title}</span>
-                    {c.processCode && (
-                      <span className="flex-none rounded-full bg-page px-2 py-0.5 text-[10px] font-bold text-muted">
-                        {c.processCode}
-                      </span>
-                    )}
-                  </div>
+                  <div className="truncate text-[14px] font-bold text-slate-800">{c.title}</div>
                   {c.preview && <p className="mt-0.5 truncate text-[12px] text-muted">{c.preview}</p>}
+                  {c.processCode && <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{c.processCode}</div>}
                 </div>
               </Link>
 
-              <div className="flex flex-none flex-col items-end gap-1.5">
+              <div className="flex flex-none flex-col items-end gap-1.5 max-sm:ml-auto">
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${toneBadge[statusTone[c.status] ?? "accent"]}`}>
                   {statusLabel[c.status] ?? c.status}
                 </span>
@@ -84,7 +78,7 @@ export default async function ConversasPage() {
                 </span>
               </div>
 
-              <div className="flex flex-none items-center gap-2 border-l border-border-soft pl-4">
+              <div className="flex flex-none items-center gap-2 border-l border-border-soft pl-4 max-sm:w-full max-sm:justify-end max-sm:border-l-0 max-sm:border-t max-sm:pl-0 max-sm:pt-2">
                 {resumable ? (
                   <Link
                     href={`/mapeamento?c=${c.id}`}

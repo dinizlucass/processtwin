@@ -8,8 +8,8 @@ export default async function DashboardPage() {
   const { kpis, departmentMaturity, pendingAlerts, updatedLabel } = await getDashboardData();
 
   return (
-    <div className="flex max-w-[1240px] flex-col gap-5 px-8 py-7">
-      <div className="flex items-end justify-between gap-4">
+    <div className="mx-auto flex max-w-[1240px] flex-col gap-5 px-4 py-6 sm:px-8 sm:py-7">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="m-0 text-[21px] font-bold tracking-tight">Visão Geral</h1>
           <p className="mt-1 text-[13px] text-muted">Saúde do mapeamento de processos · Atualizado {updatedLabel}</p>
@@ -22,9 +22,9 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         {kpis.map((k) => (
-          <div key={k.label} className="rounded-[14px] border border-border bg-surface px-5 py-4.5 shadow-sm">
+          <div key={k.label} className="min-w-0 rounded-[14px] border border-border bg-surface px-4 py-4 shadow-sm sm:px-5 sm:py-4.5">
             <div className="text-[12px] font-semibold text-muted">{k.label}</div>
             <div className={`mt-1.5 text-[30px] font-bold tracking-tight ${k.valueTone ? toneText[k.valueTone] : ""}`}>
               {k.value}
@@ -42,16 +42,16 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-[1.4fr_1fr] items-start gap-4">
-        <div className="rounded-[14px] border border-border bg-surface px-6 py-5.5 shadow-sm">
-          <div className="mb-4.5 flex items-center justify-between">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1.4fr_1fr]">
+        <div className="min-w-0 rounded-[14px] border border-border bg-surface px-4 py-5 shadow-sm sm:px-6 sm:py-5.5">
+          <div className="mb-4.5 flex flex-wrap items-center justify-between gap-1">
             <div className="text-[14px] font-bold">Maturidade por Departamento</div>
             <div className="text-[11.5px] text-muted">% de processos atualizados</div>
           </div>
           <div className="flex flex-col gap-3.5">
             {departmentMaturity.map((d) => (
               <div key={d.name} className="flex items-center gap-3">
-                <div className="w-23 flex-none text-[12.5px] font-semibold text-slate-700">{d.name}</div>
+                <div className="w-23 flex-none truncate text-[12.5px] font-semibold text-slate-700" title={d.name}>{d.name}</div>
                 <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                   <div className={`h-full rounded-full ${toneBar[d.tone]}`} style={{ width: `${d.pct}%` }} />
                 </div>
@@ -75,12 +75,12 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        <div className="rounded-[14px] border border-border bg-surface px-6 py-5.5 shadow-sm">
+        <div className="min-w-0 rounded-[14px] border border-border bg-surface px-4 py-5 shadow-sm sm:px-6 sm:py-5.5">
           <div className="mb-4 flex items-center justify-between">
             <div className="text-[14px] font-bold">Ações Pendentes</div>
-            <a href="#" className="text-[12px] font-semibold">
-              Ver todas
-            </a>
+            <Link href="/processos" className="text-[12px] font-semibold text-accent hover:text-accent-hover">
+              Ver processos
+            </Link>
           </div>
           <div className="flex flex-col gap-1.5">
             {pendingAlerts.map((a) => (

@@ -416,9 +416,9 @@ export default function MapeamentoPage() {
   }
 
   return (
-    <div className="grid h-full grid-cols-[1.25fr_1fr] gap-5 px-8 py-6">
+    <div className="grid h-full grid-cols-1 gap-4 overflow-auto px-4 py-4 lg:grid-cols-[1.25fr_1fr] lg:gap-5 lg:overflow-hidden lg:px-8 lg:py-6">
       {/* CHAT / TELA DE SELEÇÃO INICIAL */}
-      <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+      <div className="flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-sm lg:min-h-0">
         
         {/* CABEÇALHO */}
         <div className="flex items-center gap-3 border-b border-border-soft px-5 py-4">
@@ -444,7 +444,7 @@ export default function MapeamentoPage() {
               Escolha se quer extrair dados de uma transcrição existente ou mapear o processo conversando do zero.
             </p>
             
-            <div className="grid w-full max-w-[500px] grid-cols-2 gap-5">
+            <div className="grid w-full max-w-[500px] grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-5">
               {/* Botão Transcrição */}
               <button
                 onClick={() => fileInputRef.current?.click()}

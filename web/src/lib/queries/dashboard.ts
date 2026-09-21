@@ -110,7 +110,7 @@ export async function getDashboardData() {
       const pct = Math.round((upToDate / rows.length) * 100);
       return { name, pct, tone: (pct >= 80 ? "success" : pct >= 60 ? "warning" : "danger") as Tone };
     })
-    .sort((a, b) => b.pct - a.pct);
+    .sort((a, b) => a.pct - b.pct || a.name.localeCompare(b.name, "pt-BR"));
 
   const pendingAlerts: { title: string; desc: string; badge: string; tone: Tone }[] = [];
   for (const p of processes) {

@@ -245,7 +245,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
   return (
     <div className="flex h-full min-h-0 bg-page">
       {/* ÁRVORE DE PASTAS */}
-      <aside className="flex w-[272px] flex-none flex-col border-r border-border bg-surface">
+      <aside className="flex w-[272px] flex-none flex-col border-r border-border bg-surface max-sm:hidden">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <span className="text-[10.5px] font-bold tracking-[.09em] text-slate-400 uppercase">Repositório</span>
           <button
@@ -305,9 +305,17 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
       </aside>
 
       {/* PAINEL PRINCIPAL */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
+        <div className="border-b border-border bg-surface px-4 py-3 sm:hidden">
+          <label htmlFor="mobile-folder" className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted">Pasta</label>
+          <select id="mobile-folder" value={selected} onChange={(e) => setSelected(e.target.value)} className="w-full rounded-lg border border-border bg-white px-3 py-2 text-[13px] font-semibold text-ink">
+            <option value="all">Todos os processos</option>
+            <option value="unfiled">Sem pasta</option>
+            {flat.map(({ node, depth }) => <option key={node.id} value={node.id}>{"— ".repeat(depth)}{node.name}</option>)}
+          </select>
+        </div>
         {/* Cabeçalho */}
-        <div className="flex-none px-8 pt-6">
+        <div className="flex-none px-4 pt-5 sm:px-8 sm:pt-6">
           <nav className="flex items-center gap-1.5 text-[11.5px] font-semibold text-slate-400">
             <button onClick={() => setSelected("all")} className="hover:text-slate-600">Repositório</button>
             {selected === "unfiled" && (
@@ -328,7 +336,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
             ))}
           </nav>
 
-          <div className="mt-2 flex items-start justify-between gap-4">
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <h1 className="m-0 flex items-center gap-2.5 text-[22px] font-bold tracking-tight text-ink">
                 {selectedNode && <span className="h-3.5 w-3.5 rounded-[5px]" style={{ background: selectedNode.color || FOLDER_COLORS[0] }} />}
@@ -362,7 +370,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Buscar por nome, código, dono…"
-                className="h-9 w-64 rounded-[10px] border border-border bg-surface pr-3 pl-9 text-[12.5px] outline-none focus:border-accent-2"
+                className="h-9 w-64 max-w-full rounded-[10px] border border-border bg-surface pr-3 pl-9 text-[12.5px] outline-none focus:border-accent-2"
               />
             </div>
 
@@ -400,7 +408,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
             {view === "table" && (
               <button
                 onClick={toggleSelectMode}
-                className={`ml-auto flex h-9 items-center gap-1.5 rounded-[10px] border px-3 text-[12px] font-semibold ${
+                className={`ml-auto flex h-9 items-center gap-1.5 rounded-[10px] border px-3 text-[12px] font-semibold max-sm:hidden ${
                   selecting ? "border-accent bg-accent-soft text-accent-hover" : "border-border bg-surface text-slate-600 hover:bg-page"
                 }`}
               >
@@ -408,7 +416,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
               </button>
             )}
 
-            <div className={`flex items-center gap-1 rounded-[10px] border border-border bg-surface p-0.5 ${view === "table" ? "" : "ml-auto"}`}>
+            <div className={`flex items-center gap-1 rounded-[10px] border border-border bg-surface p-0.5 max-sm:hidden ${view === "table" ? "" : "ml-auto"}`}>
               <ViewToggle active={view === "table"} onClick={() => setView("table")} label="Tabela"><TableIcon /></ViewToggle>
               <ViewToggle active={view === "cards"} onClick={() => { setView("cards"); setSelecting(false); setPicked(new Set()); }} label="Cartões"><GridIcon /></ViewToggle>
             </div>
@@ -417,7 +425,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
 
         {/* Aviso de duplicatas (DAT-01) */}
         {duplicateGroups.length > 0 && !dupDismissed && (
-          <div className="mx-8 mt-4 rounded-[12px] border border-warning bg-warning-soft px-4 py-3">
+          <div className="mx-4 mt-4 rounded-[12px] border border-warning bg-warning-soft px-4 py-3 sm:mx-8">
             <div className="flex items-start gap-2.5">
               <span className="mt-0.5 flex-none text-warning-text"><AlertIcon /></span>
               <div className="min-w-0 flex-1">
@@ -452,7 +460,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
 
         {/* Barra de seleção em massa */}
         {pickedList.length > 0 && (
-          <div className="sticky top-0 z-10 mx-8 mt-4 flex items-center gap-3 rounded-[12px] border border-accent-soft-border bg-accent-soft px-4 py-2.5 shadow-sm">
+          <div className="sticky top-0 z-10 mx-4 mt-4 flex items-center gap-3 rounded-[12px] border border-accent-soft-border bg-accent-soft px-4 py-2.5 shadow-sm sm:mx-8">
             <span className="text-[12.5px] font-bold text-accent-hover">{pickedList.length} selecionado{pickedList.length > 1 ? "s" : ""}</span>
             <BulkMoveMenu flat={flat} disabled={busy} onMove={bulkMove} />
             <button onClick={() => setPicked(new Set())} className="text-[12px] font-semibold text-slate-500 hover:text-slate-700">
@@ -462,11 +470,11 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
         )}
 
         {/* Conteúdo */}
-        <div className="flex-1 px-8 pt-4 pb-8">
+        <div className="flex-1 px-4 pt-4 pb-8 sm:px-8">
           {visible.length === 0 ? (
             <EmptyState hasFilters={activeFilters > 0} onClear={clearFilters} />
           ) : view === "table" ? (
-            <TableView
+            <><div className="hidden sm:block"><TableView
               rows={visible}
               flat={flat}
               busy={busy}
@@ -480,7 +488,7 @@ export function RepositoryExplorer({ folders, processes }: { folders: FolderRow[
               onTogglePick={togglePick}
               onTogglePickAll={togglePickAll}
               onMove={(pid, folderId) => api(`/api/processes/${pid}`, "PATCH", { folderId })}
-            />
+            /></div><div className="sm:hidden"><CardsView rows={visible} flat={flat} busy={busy} onMove={(pid, folderId) => api(`/api/processes/${pid}`, "PATCH", { folderId })} /></div></>
           ) : (
             <CardsView rows={visible} flat={flat} busy={busy} onMove={(pid, folderId) => api(`/api/processes/${pid}`, "PATCH", { folderId })} />
           )}

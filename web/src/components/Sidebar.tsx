@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   {
     href: "/dashboard",
     label: "Visão Executiva",
+    mobileLabel: "Visão",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="7" height="9" rx="1" />
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   {
     href: "/mapeamento",
     label: "Mapeamento",
+    mobileLabel: "Mapear",
     badge: "IA",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -32,6 +34,7 @@ const NAV_ITEMS = [
   {
     href: "/assistente",
     label: "Pergunte à IA",
+    mobileLabel: "IA",
     badge: "Piloto",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -43,6 +46,7 @@ const NAV_ITEMS = [
     href: "/processos",
     matchPrefix: "/modelagem",
     label: "Processos",
+    mobileLabel: "Processos",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="8" height="8" rx="2" />
@@ -55,6 +59,7 @@ const NAV_ITEMS = [
     href: "/grafo",
     matchPrefix: "/grafo",
     label: "Conexões",
+    mobileLabel: "Conexões",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="5" cy="6" r="2.5" />
@@ -68,6 +73,7 @@ const NAV_ITEMS = [
     href: "/conversas",
     matchPrefix: "/conversas",
     label: "Conversas",
+    mobileLabel: "Conversas",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 8v4l3 2" />
@@ -85,19 +91,24 @@ export function Sidebar() {
     () => matchMedia("(max-width: 1279px)").matches,
     () => false,
   );
+  const phoneScreen = useSyncExternalStore(
+    (notify) => { const media = matchMedia("(max-width: 639px)"); media.addEventListener("change", notify); return () => media.removeEventListener("change", notify); },
+    () => matchMedia("(max-width: 639px)").matches,
+    () => false,
+  );
   const [preference, setPreference] = usePanelPreference("pt-sidebar-collapsed");
-  const collapsed = preference ?? (compactScreen || pathname.startsWith("/modelagem/"));
+  const collapsed = phoneScreen || (preference ?? (compactScreen || pathname.startsWith("/modelagem/")));
 
   const toggle = () => setPreference(!collapsed);
 
   return (
     <aside
-      className={`flex flex-none flex-col gap-1 bg-sidebar py-5 overflow-y-auto transition-[width] duration-200 ease-out ${
+      className={`flex flex-none flex-col gap-1 bg-sidebar py-5 overflow-y-auto transition-[width] duration-200 ease-out max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:!h-16 max-sm:!w-full max-sm:!flex-row max-sm:!items-center max-sm:!gap-0 max-sm:!overflow-visible max-sm:!border-t max-sm:!border-white/10 max-sm:!px-1 max-sm:!py-1 ${
         collapsed ? "w-[68px] px-2.5" : "w-[224px] px-3.5"
       }`}
     >
       {/* MARCA + BOTÃO RECOLHER */}
-      <div className={`flex items-center pb-4 ${collapsed ? "justify-center px-0" : "gap-2.5 px-2"}`}>
+      <div className={`flex items-center pb-4 max-sm:hidden ${collapsed ? "justify-center px-0" : "gap-2.5 px-2"}`}>
         <div className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-accent-2 to-accent">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="5" cy="6" r="3" />
@@ -127,17 +138,17 @@ export function Sidebar() {
         <button
           onClick={toggle}
           title="Expandir menu"
-          className="mb-1 flex h-8 items-center justify-center rounded-[10px] text-slate-400 hover:bg-sidebar-hover hover:text-white"
+          className="mb-1 flex h-8 items-center justify-center rounded-[10px] text-slate-400 hover:bg-sidebar-hover hover:text-white max-sm:hidden"
         >
           <ChevronsIcon direction="right" />
         </button>
       )}
 
       {!collapsed && (
-        <div className="px-3 pb-1.5 text-[10px] font-bold tracking-[.09em] text-slate-500 uppercase">Plataforma</div>
+        <div className="px-3 pb-1.5 text-[10px] font-bold tracking-[.09em] text-slate-500 uppercase max-sm:hidden">Plataforma</div>
       )}
 
-      <nav aria-label="Navegação principal" className="flex flex-col gap-1">
+      <nav aria-label="Navegação principal" className="flex flex-col gap-1 max-sm:w-full max-sm:flex-row max-sm:justify-around max-sm:gap-0">
       {NAV_ITEMS.map((item) => {
         const active = pathname === item.href || (item.matchPrefix && pathname.startsWith(item.matchPrefix));
         return (
@@ -147,26 +158,27 @@ export function Sidebar() {
             title={collapsed ? item.label : undefined}
             aria-label={item.label}
             aria-current={active ? "page" : undefined}
-            className={`relative flex items-center rounded-[10px] text-[13.5px] font-medium transition-colors ${
+            className={`relative flex items-center rounded-[10px] text-[13.5px] font-medium transition-colors max-sm:!h-14 max-sm:min-w-0 max-sm:flex-1 max-sm:flex-col max-sm:justify-center max-sm:gap-1 ${
               collapsed ? "h-10 justify-center px-0" : "gap-2.5 px-3 py-2.5"
             } ${active ? "bg-sidebar-hover text-white ring-1 ring-inset ring-white/10" : "text-slate-400 hover:bg-sidebar-hover hover:text-white"}`}
           >
             {item.icon}
-            {!collapsed && <span className="flex-1">{item.label}</span>}
+            {!collapsed && <span className="flex-1 max-sm:hidden">{item.label}</span>}
+            <span className="hidden text-[9px] leading-none max-sm:block">{item.mobileLabel}</span>
             {item.badge &&
               (collapsed ? (
                 <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-accent" />
               ) : (
-                <span className="rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-bold text-white">{item.badge}</span>
+                <span className="rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-bold text-white max-sm:hidden">{item.badge}</span>
               ))}
           </Link>
         );
       })}
 
       </nav>
-      <div className="flex-1" />
+      <div className="flex-1 max-sm:hidden" />
 
-      <div className={`flex items-center rounded-xl bg-sidebar-hover ${collapsed ? "justify-center p-2" : "gap-2.5 p-3"}`}>
+      <div className={`flex items-center rounded-xl bg-sidebar-hover max-sm:hidden ${collapsed ? "justify-center p-2" : "gap-2.5 p-3"}`}>
         <div className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-slate-700 text-[12px] font-bold text-slate-200">
           PT
         </div>
