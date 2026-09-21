@@ -30,6 +30,16 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: "/assistente",
+    label: "Pergunte à IA",
+    badge: "Piloto",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 5h16v12H8l-4 3V5Z" /><path d="M8 9h8M8 13h5" />
+      </svg>
+    ),
+  },
+  {
     href: "/processos",
     matchPrefix: "/modelagem",
     label: "Processos",

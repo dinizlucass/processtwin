@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --test tests/*.test.mjs",
-    "test:e2e": "node scripts/e2e-live.mjs"
+    "test:e2e": "node scripts/e2e-live.mjs",
+    "test:assistant-live": "node scripts/eval-process-assistant.mjs",
+    "test:assistant-deep": "node scripts/eval-process-assistant-deep.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.2",
