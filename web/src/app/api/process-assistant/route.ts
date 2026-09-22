@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { answerCatalogQuestion, answerStructuredList, buildEvidence, citationsAreValid, groundFollowUp, isOperationalQuestion } from "@/lib/process-assistant";
+import { answerCatalogQuestion, answerStructuredList, buildEvidence, citationsAreValid, ensureSingleSourceCitation, groundFollowUp, isOperationalQuestion } from "@/lib/process-assistant";
 import { loadAssistantCatalog } from "@/lib/queries/process-assistant";
 
 export const runtime = "nodejs";
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
       store: false,
       max_output_tokens: 900,
     });
-    const answer = response.output_text?.trim();
+    const answer = ensureSingleSourceCitation(response.output_text?.trim() || "", evidence.sources.map((s) => s.id));
     if (!answer) throw new Error("Modelo não retornou uma resposta textual.");
     if (!citationsAreValid(answer, evidence.sources.map((s) => s.id), evidence.sources.length > 0)) {
       return Response.json({ answer: "Não consegui validar as referências da resposta. Reformule a pergunta ou cite um processo específico.", sources: evidence.sources, asOf: evidence.kpis.asOf, scope: evidence.kpis.scope });

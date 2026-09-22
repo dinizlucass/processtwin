@@ -200,9 +200,22 @@ export function citationsAreValid(answer: string, sourceIds: string[], requireCi
   return (!requireCitation || cited.length > 0) && cited.every((id) => sourceIds.includes(id));
 }
 
+export function ensureSingleSourceCitation(answer: string, sourceIds: string[]): string {
+  if (sourceIds.length !== 1 || /\[P\d+\]/.test(answer)) return answer;
+  return `${answer} [${sourceIds[0]}]`;
+}
+
 export function groundFollowUp(question: string, history: { role: string; content: string }[], catalog: AssistantCatalog): string {
   const normalize = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const current = normalize(question);
+  if (/\b(?:desses|dessas|assim|esse sistema|essa ferramenta)\b/.test(current)) {
+    const names = [...new Set(catalog.systems.map((s) => s.system_name).filter((s): s is string => !!s))].sort((a, b) => b.length - a.length);
+    if (!names.some((name) => current.includes(normalize(name)))) {
+      const prior = [...history].reverse().find((item) => item.role === "user" && names.some((name) => normalize(item.content).includes(normalize(name))));
+      const name = prior && names.find((candidate) => normalize(prior.content).includes(normalize(candidate)));
+      if (name) return `${question} (processos com sistema ${name})`;
+    }
+  }
   if (catalog.processes.some((p) => current.includes(normalize(p.name))) || /\b(?:quantos?|quantas?|quais processos|total|cobertura|kpis?)\b/.test(current)) return question;
   for (const prior of [...history].reverse()) {
     if (prior.role !== "user") continue;
@@ -220,6 +233,37 @@ export function answerStructuredList(question: string, catalog: AssistantCatalog
   const q = question.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const byId = new Map(catalog.processes.map((p) => [p.id, p]));
   const sourceFor = (p: AssistantProcess, id: string) => ({ id, name: p.name, href: `/modelagem/${p.id}`, version: p.version });
+  const systemQuestion = /\b(?:processos?|sistemas?)\b/.test(q) && /\b(?:quais|quantos|quantas|qual|liste|mostre|quantidade|total|numero)\b/.test(q);
+  if (systemQuestion) {
+    const normalized = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const knownSystems = [...new Set([
+      ...catalog.systems.map((s) => s.system_name).filter((s): s is string => !!s),
+      ...catalog.nodes.flatMap((n) => Array.isArray(n.attributes?.systems) ? n.attributes.systems.filter((s): s is string => typeof s === "string") : []),
+    ])].sort((a, b) => b.length - a.length);
+    const mentioned = knownSystems.find((name) => normalized(name).length >= 3 && q.includes(normalized(name)));
+    const requested = q.match(/\b(?:com|usa[m]?|utiliza[m]?|sistema)\s+(?:o\s+|a\s+)?([a-z0-9][a-z0-9 /.+-]*?)(?=\s+(?:como|est[aã]o|foram|s[aã]o|no\s+processo)|[?.!]|$)/)?.[1]?.trim();
+    const systemName = mentioned || requested;
+    if (systemName && !/^(?:sistema|sistemas|processo|processos|mapeados?)$/.test(systemName)) {
+      const needle = normalized(systemName);
+      const hasSystem = (name: string) => new RegExp(`(^|[^a-z0-9])${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^a-z0-9])`).test(normalized(name));
+      const systemIds = new Set([
+        ...catalog.systems.filter((s) => s.system_name && hasSystem(s.system_name)).map((s) => s.process_id),
+        ...catalog.nodes.filter((n) => Array.isArray(n.attributes?.systems) && n.attributes.systems.some((s) => typeof s === "string" && hasSystem(s))).map((n) => n.process_id),
+      ]);
+      const mappedIds = new Set(catalog.nodes.filter((n) => n.kind !== "lane").map((n) => n.process_id));
+      const publishedOnly = /\bpublicad[oa]s?\b/.test(q);
+      const mappedOnly = /\bmapead[oa]s?\b/.test(q);
+      const candidates = catalog.processes.filter((p) => systemIds.has(p.id) && (!publishedOnly || p.status === "publicado"));
+      const matches = mappedOnly ? candidates.filter((p) => mappedIds.has(p.id)) : candidates;
+      const shown = matches.slice(0, 40);
+      const sources = shown.map((p, i) => sourceFor(p, `P${i + 1}`));
+      const label = mentioned || (systemName.length <= 4 ? systemName.toUpperCase() : systemName[0].toUpperCase() + systemName.slice(1));
+      const qualifier = `${mappedOnly ? " mapeados" : ""}${publishedOnly ? " publicados" : ""}`;
+      const lines = shown.map((p, i) => `${p.name} [P${i + 1}] (${p.status || "status não informado"})`);
+      const count = `${matches.length} processos${qualifier} com ${label} como sistema`;
+      return { answer: `${count} no escopo consultado.${mappedOnly ? ` Entre ${candidates.length} processos com esse sistema, mapeado significa ter ao menos uma etapa de fluxo.` : ""}${shown.length < matches.length ? ` Mostrando os primeiros ${shown.length}.` : ""}${lines.length ? `\n${lines.join("\n")}` : ""}${catalog.scopeLabel ? `\nEscopo: ${catalog.scopeLabel}.` : ""}`, sources };
+    }
+  }
   const named = catalog.processes.filter((p) => q.includes(p.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()));
   if (named.length > 1) {
     const longestName = [...named].sort((a, b) => b.name.length - a.name.length)[0].name;

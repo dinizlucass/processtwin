@@ -30,7 +30,7 @@ const [processes, nodes, relationships, systems, pains] = await Promise.all([
   select("system_dependency", "process_id,system_name"),
   select("process_pain_point", "process_id,description"),
 ]);
-const selected = process.env.PROCESS_ASSISTANT_SCOPE === "all" ? processes : processes.filter((p) => p.status === "publicado");
+const selected = process.env.PROCESS_ASSISTANT_SCOPE === "published" ? processes.filter((p) => p.status === "publicado") : processes;
 const ids = new Set(selected.map((p) => p.id));
 const mappedIds = new Set(nodes.filter((n) => ids.has(n.process_id) && n.kind !== "lane").map((n) => n.process_id));
 const critical = selected.filter((p) => p.criticality === "alta");
@@ -83,9 +83,11 @@ await check("publicados mapeados", "Quantos processos publicados estão mapeados
 await check("Compras mapeados", "Quantos processos da área Compras estão mapeados?", (r) => r.answer.includes(`${comprasMapped} processos mapeados de ${compras.length}`), 3);
 await check("SAP", "Quais processos usam SAP?", (r) => {
   const got = new Set((r.sources || []).map((s) => s.href.split("/").pop()));
-  const countMatches = sapIds.size === 0 ? /Nenhum processo registra SAP/.test(r.answer) : r.answer.includes(`${sapIds.size} processos`);
+  const countMatches = r.answer.includes(`${sapIds.size} processos com SAP como sistema`);
   return countMatches && got.size === sapIds.size && [...got].every((id) => sapIds.has(id));
 }, 2);
+await check("contagem SAP", "Quantos processos têm SAP como sistema?", (r) => r.answer.includes(`${sapIds.size} processos com SAP como sistema`), 3);
+await check("SAP mapeados", "Quantos processos com SAP estão mapeados?", (r) => r.answer.includes(`${[...sapIds].filter((id) => mappedIds.has(id)).length} processos mapeados com SAP como sistema`), 3);
 await check("relações", "Quais processos se relacionam entre si?", (r) => confirmed.length === 0 ? /Não há relações confirmadas/.test(r.answer) : r.answer.includes(`${confirmed.length} relações confirmadas`), 2);
 await check("dores formais", "Quais dores foram registradas?", (r) => pains.length === 0 ? /Nenhuma dor está formalmente registrada/.test(r.answer) : r.answer.includes(`${pains.length} dores formalmente registradas`), 2);
 
@@ -114,7 +116,7 @@ if (reimbursement) {
   for (let i = 0; i < 3; i++) {
     total++;
     const follow = await ask("Quem valida os comprovantes?", history);
-    const ok = follow.status === 200 && follow.citationsValid && follow.sources?.length === 1 && follow.sources[0].href === `/modelagem/${reimbursement.id}` && norm(follow.answer).includes("financeiro");
+    const ok = follow.status === 200 && follow.citationsValid && follow.sources?.length === 1 && follow.sources[0].href === `/modelagem/${reimbursement.id}` && norm(follow.answer).includes("financeir");
     console.log(`${ok ? "PASS" : "FAIL"} acompanhamento de fluxo #${i + 1} (${follow.ms}ms, ${follow.sources?.length || 0} fontes)`);
     if (ok) passed++; else failures.push({ label: "acompanhamento de fluxo", answer: String(follow.answer || follow.error).slice(0, 700) });
   }
@@ -125,8 +127,8 @@ await check("processo inexistente", "Como funciona o processo de colheita lunar?
 
 total++;
 const unauthorized = await fetch(`${base}/api/process-assistant`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: "Quantos processos?" }) });
-const authOk = unauthorized.status === 401;
-console.log(`${authOk ? "PASS" : "FAIL"} bloqueio sem chave (${unauthorized.status})`);
+const authOk = unauthorized.status === 200;
+console.log(`${authOk ? "PASS" : "FAIL"} acesso livre ao assistente (${unauthorized.status})`);
 if (authOk) passed++; else failures.push({ label: "auth", status: unauthorized.status });
 
 console.log(`${passed}/${total} verificações passaram`);

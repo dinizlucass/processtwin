@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTs } from "./load-ts.mjs";
 
-const { catalogKpis, rankProcesses, buildEvidence, isOperationalQuestion, answerCatalogQuestion, answerStructuredList, citationsAreValid, groundFollowUp } = loadTs("lib/process-assistant.ts");
+const { catalogKpis, rankProcesses, buildEvidence, isOperationalQuestion, answerCatalogQuestion, answerStructuredList, citationsAreValid, ensureSingleSourceCitation, groundFollowUp } = loadTs("lib/process-assistant.ts");
 
 const processes = [
   { id: "p1", name: "Cadastro de fornecedor", code: "F01", department: "Compras", criticality: "alta", version: 2, objective: "Registrar fornecedor", scope: null, trigger_desc: "Solicitação recebida", inputs: null, outputs: "Fornecedor cadastrado", frequency: null, sla: "5 dias", last_reviewed_at: "2023-01-01", owner: { name: "Ana" } },
@@ -72,6 +72,12 @@ test("citações inventadas ou ausentes são recusadas", () => {
   assert.equal(citationsAreValid("Total 3 [P1]", [], false), false);
 });
 
+test("uma única fonte inequívoca pode ser anexada sem aceitar citação inventada", () => {
+  assert.equal(ensureSingleSourceCitation("Ana valida o cadastro.", ["P1"]), "Ana valida o cadastro. [P1]");
+  assert.equal(ensureSingleSourceCitation("Ana valida [P9]", ["P1"]), "Ana valida [P9]");
+  assert.equal(ensureSingleSourceCitation("Resposta", ["P1", "P2"]), "Resposta");
+});
+
 test("pergunta de relações recupera extremidades confirmadas", () => {
   const e = buildEvidence("Quais processos se relacionam?", catalog);
   assert.equal(e.relationships.length, 1);
@@ -81,12 +87,29 @@ test("pergunta de relações recupera extremidades confirmadas", () => {
 
 test("listas de sistemas e relações são completas e determinísticas", () => {
   const systems = answerStructuredList("Quais processos usam SAP?", catalog);
-  assert.match(systems.answer, /^1 processos registram uso de SAP/);
+  assert.match(systems.answer, /^1 processos com SAP como sistema/);
   assert.equal(systems.sources[0].href, "/modelagem/p1");
   assert.doesNotMatch(systems.answer, /p2/);
   const relationships = answerStructuredList("Quais processos se relacionam?", catalog);
   assert.match(relationships.answer, /^1 relações confirmadas/);
   assert.equal(relationships.sources.length, 2);
+});
+
+test("contagem por sistema não cai no KPI genérico e aceita variações da pergunta", () => {
+  for (const question of ["Quantos processos usam SAP?", "Quantos processos têm SAP como sistema?", "Quantos processos com SAP estão mapeados?"]) {
+    const result = answerStructuredList(question, catalog);
+    assert.match(result.answer, /1 processos.*SAP como sistema/);
+    assert.deepEqual(result.sources.map((s) => s.href), ["/modelagem/p1"]);
+  }
+  const absent = answerStructuredList("Quantos processos usam Oracle?", catalog);
+  assert.match(absent.answer, /0 processos com Oracle como sistema/);
+  assert.equal(absent.sources.length, 0);
+});
+
+test("seguimento sobre os mesmos processos mantém o filtro de sistema", () => {
+  const question = groundFollowUp("E quantos desses estão mapeados?", [{ role: "user", content: "Quantos processos usam SAP?" }], catalog);
+  assert.match(question, /sistema SAP/);
+  assert.match(answerStructuredList(question, catalog).answer, /1 processos mapeados com SAP/);
 });
 
 test("nome explícito de processo inexistente não recupera processo alheio", () => {
@@ -113,7 +136,7 @@ test("filtro sem registros no escopo retorna zero em vez do total", () => {
   const answer = answerCatalogQuestion("Quantos processos da área Compras estão mapeados?", catalogKpis(empty), empty);
   assert.match(answer, /0 processos mapeados de 0 com área compras/i);
   const system = answerStructuredList("Quais processos usam SAP?", empty);
-  assert.match(system.answer, /Nenhum processo registra SAP/);
+  assert.match(system.answer, /0 processos com SAP como sistema/);
 });
 
 test("nomes duplicados pedem código antes de explicar fluxo", () => {

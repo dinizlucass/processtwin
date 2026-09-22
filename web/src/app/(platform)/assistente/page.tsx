@@ -7,7 +7,7 @@ type Source = { id: string; name: string; href: string; version: number | null }
 type Message = { role: "user" | "assistant"; content: string; sources?: Source[]; asOf?: string; scope?: string };
 
 const SUGGESTIONS = [
-  { title: "Panorama", question: "Quantos processos publicados estão mapeados?" },
+  { title: "Panorama", question: "Quantos processos estão mapeados?" },
   { title: "Prioridades", question: "Quais processos críticos estão no repositório?" },
   { title: "Sistemas", question: "Quais processos usam SAP?" },
   { title: "Conexões", question: "Quais processos se relacionam entre si?" },
@@ -101,7 +101,7 @@ export default function ProcessAssistantPage() {
             <textarea ref={inputRef} aria-label="Pergunta sobre processos" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); ask(); } }} rows={2} maxLength={1000} placeholder="Pergunte sobre seus processos..." className="max-h-36 min-h-12 min-w-0 flex-1 resize-none bg-transparent px-3 py-2 text-[13px] leading-5 text-slate-900 outline-none placeholder:text-slate-400" />
             <button type="submit" aria-label="Enviar pergunta" disabled={!draft.trim() || busy} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"><svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v14" /></svg></button>
           </form>
-          <p className="mt-2 text-center text-[10px] leading-4 text-slate-500">Baseado nos processos publicados. Indicadores de execução real dependem de integração com os sistemas.</p>
+          <p className="mt-2 text-center text-[10px] leading-4 text-slate-500">Consulta todo o repositório; rascunhos e processos em revisão são provisórios. Indicadores de execução real dependem de integração.</p>
         </div>
       </div>
     </div>

@@ -10,7 +10,7 @@ async function allRows<T>(table: string, columns: string, publishedIds?: Set<str
   const result: T[] = [];
   for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
     const query = db.from(table).select(columns).range(offset, offset + PAGE_SIZE - 1);
-    if (table === "process" && process.env.PROCESS_ASSISTANT_SCOPE !== "all") query.eq("status", "publicado");
+    if (table === "process" && process.env.PROCESS_ASSISTANT_SCOPE === "published") query.eq("status", "publicado");
     const { data, error } = await query;
     if (error) {
       // Older installations may not have every migration; surface the gap in every answer.
@@ -43,7 +43,7 @@ export async function loadAssistantCatalog(): Promise<AssistantCatalog> {
     allRows<AssistantFact>("improvement_opportunity", "process_id,title", ids),
   ]);
   return { processes, nodes, edges, relationships: relationships.filter((r) => ids.has(r.from_process) && ids.has(r.to_process)), systems, pains, opportunities, warnings,
-    scopeLabel: process.env.PROCESS_ASSISTANT_SCOPE === "all"
-      ? "Todos os processos do repositório, inclusive rascunhos e em revisão (dados provisórios); indicadores de cadastro/mapeamento, não de execução real"
-      : "Somente processos publicados; indicadores de cadastro/mapeamento, não de execução real" };
+    scopeLabel: process.env.PROCESS_ASSISTANT_SCOPE === "published"
+      ? "Somente processos publicados; indicadores de cadastro/mapeamento, não de execução real"
+      : "Todos os processos do repositório, inclusive rascunhos e em revisão (dados provisórios); indicadores de cadastro/mapeamento, não de execução real" };
 }
